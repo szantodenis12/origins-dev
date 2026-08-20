@@ -29,7 +29,7 @@ export async function GET(
 
   const pkpassBuffer = await buildApplePass(member, card, config);
 
-  return new NextResponse(pkpassBuffer, {
+  return new NextResponse(Buffer.from(pkpassBuffer) as unknown as BodyInit, {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.apple.pkpass",
