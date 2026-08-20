@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { zipSync } from "fflate";
-import type { Member, LoyaltyConfig } from "../db";
-import type { MemberCardResult } from "../card";
+import type { Member } from "../db";
+import type { LoyaltyConfig } from "../loyalty";
+import type { MemberCard } from "../card";
 
 interface ApplePassColors {
   background: string;
@@ -70,7 +71,7 @@ const ORIGINS_LOCATIONS = [
 
 export async function buildApplePass(
   member: Member,
-  card: MemberCardResult,
+  card: MemberCard,
   config: LoyaltyConfig,
 ): Promise<Uint8Array> {
   const tierKey = card.gold.isGold

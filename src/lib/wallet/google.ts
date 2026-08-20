@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { Member } from "../db";
-import type { MemberCardResult } from "../card";
+import type { MemberCard } from "../card";
 
 function base64UrlEncode(strOrBuffer: string | Buffer): string {
   const buf = typeof strOrBuffer === "string" ? Buffer.from(strOrBuffer) : strOrBuffer;
@@ -9,7 +9,7 @@ function base64UrlEncode(strOrBuffer: string | Buffer): string {
 
 export function getGoogleWalletSaveUrl(
   member: Member,
-  card: MemberCardResult,
+  card: MemberCard,
 ): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.originscafe.ro";
   const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID || "3388000000023190590";
