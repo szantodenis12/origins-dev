@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #1d1d1f;
+  --color-paper: #ffffff;
+  --color-sage: #d4dfb5;
+  --color-sage-deep: #6a7355;
+  --color-olive: #2c3025;
+  --color-black: #131410;
+  --color-cream: #f7f4ef;
+  --color-line: #ececea;
+  --color-muted: #8a8a8e;
+  --color-open: #3fa25f;
+  --color-star: #f5b942;
+
+  --font-sans: var(--font-inter-tight), sans-serif;
+  --font-serif: var(--font-fraunces), Georgia, serif;
+
+  --radius-card: 20px;
+  --radius-btn: 14px;
+}
+
+/* The card face type: same Cormorant variable the pass generator uses. */
+@font-face {
+  font-family: "Cormorant Card";
+  src: url("/fonts/Cormorant.ttf") format("truetype");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@utility font-serif-card {
+  font-family: "Cormorant Card", var(--font-fraunces), Georgia, serif;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

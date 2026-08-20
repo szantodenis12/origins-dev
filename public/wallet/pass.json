@@ -1,0 +1,75 @@
+{
+  "_comentariu": "Șablon pass.json pentru Origins Circle (Apple Wallet, storeCard). Valorile scrise cu MAJUSCULE_ASA se completează la generare, per membru. Culorile de mai jos sunt pentru cardul sage; pentru Gold și Student vezi tabelul din SPEC_WALLET_PASSES.md.",
+
+  "formatVersion": 1,
+  "passTypeIdentifier": "pass.ro.originscafe.circle",
+  "teamIdentifier": "TEAM_ID_APPLE",
+  "organizationName": "Origins Cafe",
+  "description": "Origins Circle",
+  "serialNumber": "ORIG-XXXX-XXXX",
+
+  "_logoText": "Numele cardului, lângă logo în antet. Logo-ul poartă deja cuvântul „origins”, deci aici stă doar tipul: Circle / Gold Circle / Student Circle. Strip-ul îl are și el desenat, ca să rămână pe card oriunde s-ar tăia imaginea.",
+  "logoText": "Circle",
+
+  "webServiceURL": "https://app.originscafe.ro/api/wallet/",
+  "authenticationToken": "TOKEN_PER_MEMBRU_MIN_16_CARACTERE",
+
+  "backgroundColor": "rgb(214, 215, 187)",
+  "foregroundColor": "rgb(35, 51, 26)",
+  "labelColor": "rgb(92, 107, 74)",
+
+  "sharingProhibited": true,
+
+  "storeCard": {
+    "headerFields": [
+      { "key": "stamps", "label": "ȘTAMPILE", "value": "3 / 5" }
+    ],
+    "primaryFields": [],
+    "secondaryFields": [
+      {
+        "key": "reward",
+        "label": "RECOMPENSĂ",
+        "value": "Mai ai 2 ștampile până la cafeaua din partea casei"
+      }
+    ],
+    "auxiliaryFields": [
+      { "key": "since", "label": "MEMBRU DIN", "value": "august 2026" },
+      { "key": "serial", "label": "CARD", "value": "ORIG-XXXX-XXXX" }
+    ],
+    "backFields": [
+      {
+        "key": "cum",
+        "label": "Cum funcționează",
+        "value": "Arată codul la casă la fiecare comandă. La 5 ștampile, a șasea cafea e din partea casei."
+      },
+      {
+        "key": "regulament",
+        "label": "Regulament",
+        "value": "https://app.originscafe.ro/regulament"
+      },
+      {
+        "key": "confidentialitate",
+        "label": "Confidențialitate",
+        "value": "https://app.originscafe.ro/confidentialitate"
+      },
+      {
+        "key": "card_web",
+        "label": "Cardul în browser",
+        "value": "https://app.originscafe.ro/card/ID_MEMBRU"
+      }
+    ]
+  },
+
+  "barcodes": [
+    {
+      "format": "PKBarcodeFormatQR",
+      "message": "ORIG-XXXX-XXXX",
+      "messageEncoding": "iso-8859-1",
+      "altText": "ORIG-XXXX-XXXX"
+    }
+  ],
+
+  "_locations": "De completat cu coordonatele reale ale cafenelelor (de verificat pe teren, nu din Maps la ochi). Cu ele, pass-ul apare singur pe ecranul de blocare când membrul e la 100-150 m de o cafenea. Format: [{ \"latitude\": 0.0, \"longitude\": 0.0, \"relevantText\": \"Ești la Origins. Arată codul la casă.\" }]",
+
+  "_primaryFields_gol": "Intenționat. Wallet desenează primary fields PESTE strip, iar strip-ul poartă deja numele și ștampilele. Orice câmp pus aici se suprapune peste desen."
+}
