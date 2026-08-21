@@ -26,7 +26,12 @@ export function getGoogleWalletSaveUrl(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lovlncplhieojxgwkerg.supabase.co";
   const logoUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/program-logo.png`;
-  const heroImageUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-circle-v2.png`;
+  const heroImages: Record<string, string> = {
+    circle: `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-circle-clean.png`,
+    gold: `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-gold.png`,
+    student: `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-student.png`,
+  };
+  const heroImageUrl = heroImages[tierKey];
 
   const classColors: Record<string, { bg: string; name: string }> = {
     circle: { bg: "#d4d4b8", name: "Origins Circle" },
@@ -69,7 +74,7 @@ export function getGoogleWalletSaveUrl(
       ],
       loyaltyObjects: [
         {
-          id: `${issuerId}.${member.id}`,
+          id: `${issuerId}.${member.id}_${tierKey}`,
           classId: `${issuerId}.origins_${tierKey}`,
           state: member.blockedAt ? "COMPLETED" : "ACTIVE",
           accountId: member.passSerial,
