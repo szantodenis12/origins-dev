@@ -26,7 +26,7 @@ export function getGoogleWalletSaveUrl(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lovlncplhieojxgwkerg.supabase.co";
   const logoUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/program-logo.png`;
-  const heroImageUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-${tierKey}.png`;
+  const heroImageUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-circle-v2.png`;
 
   const classColors: Record<string, { bg: string; name: string }> = {
     circle: { bg: "#d4d4b8", name: "Origins Circle" },
