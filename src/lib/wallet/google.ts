@@ -53,7 +53,7 @@ export function getGoogleWalletSaveUrl(
           id: `${issuerId}.origins_${tierKey}`,
           issuerName: "Origins Coffee & Drinks",
           programName: currentTier.name,
-          reviewStatus: "approved",
+          reviewStatus: "APPROVED",
           programLogo: {
             sourceUri: {
               uri: logoUrl,
