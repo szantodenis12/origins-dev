@@ -26,7 +26,9 @@ export function getGoogleWalletSaveUrl(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lovlncplhieojxgwkerg.supabase.co";
   const logoUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/program-logo.png`;
-  const heroImageUrl = `${supabaseUrl}/storage/v1/object/public/origins-photos/wallet/hero-${tierKey}.png`;
+
+  // Dynamic hero image per member with real member name and live stamp progress
+  const heroImageUrl = `${appUrl}/api/v1/passes/hero/${member.passSerial}.png`;
 
   const classColors: Record<string, { bg: string; name: string }> = {
     circle: { bg: "#d4d4b8", name: "Origins Circle" },
@@ -59,11 +61,6 @@ export function getGoogleWalletSaveUrl(
               uri: logoUrl,
             },
           },
-          heroImage: {
-            sourceUri: {
-              uri: heroImageUrl,
-            },
-          },
           hexBackgroundColor: currentTier.bg,
         },
       ],
@@ -74,6 +71,11 @@ export function getGoogleWalletSaveUrl(
           state: member.blockedAt ? "COMPLETED" : "ACTIVE",
           accountId: member.passSerial,
           accountName: member.name,
+          heroImage: {
+            sourceUri: {
+              uri: heroImageUrl,
+            },
+          },
           barcode: {
             type: "QR_CODE",
             value: member.passSerial,
