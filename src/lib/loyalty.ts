@@ -463,8 +463,8 @@ export interface StampWindow {
 }
 
 /**
- * One scan stamp per member per location per `windowHours`. Same member at
- * another Origins in the meantime is fine, that is a real second visit.
+ * Stamp window check — time-based restriction disabled per client request.
+ * Members can receive multiple stamps per day or per order at the same location.
  */
 export function stampWindow(
   stamps: StampEvent[],
@@ -478,14 +478,9 @@ export function stampWindow(
     )
     .sort(byTimeDesc)[0];
 
-  if (!last) return { blocked: false, lastStampAt: null, nextAllowedAt: null };
-
-  const nextAllowed = time(last.createdAt) + windowHours * 3600_000;
-  const blocked = now.getTime() < nextAllowed;
-
   return {
-    blocked,
-    lastStampAt: last.createdAt,
-    nextAllowedAt: blocked ? new Date(nextAllowed).toISOString() : null,
+    blocked: false,
+    lastStampAt: last?.createdAt ?? null,
+    nextAllowedAt: null,
   };
 }
