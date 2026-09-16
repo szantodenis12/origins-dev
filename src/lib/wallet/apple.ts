@@ -3,7 +3,6 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { zipSync } from "fflate";
 import forge from "node-forge";
-import sharp from "sharp";
 import type { Member } from "../db";
 import type { LoyaltyConfig } from "../loyalty";
 import type { MemberCard } from "../card";
@@ -93,13 +92,25 @@ function escapeXml(unsafe: string): string {
     .replace(/'/g, "&apos;");
 }
 
-async function renderMemberStripPng(
+function getResvgClass() {
+  try {
+    const req = eval("require");
+    return req("@resvg/resvg-js").Resvg;
+  } catch {
+    return null;
+  }
+}
+
+function renderMemberStripPng(
   tierKey: string,
   memberName: string,
   width: number,
   height: number,
   scaleFactor: number,
-): Promise<Buffer | null> {
+): Buffer | null {
+  const ResvgClass = getResvgClass();
+  if (!ResvgClass) return null;
+
   const tier = TIER_CONFIGS[tierKey] || TIER_CONFIGS.circle;
   const walletDir = path.join(process.cwd(), "public", "wallet", "apple");
   const baseStripName = `${tier.strip}@3x.png`;
@@ -110,30 +121,37 @@ async function renderMemberStripPng(
   }
 
   try {
+    const bgBuf = fs.readFileSync(baseStripPath);
+    const bgBase64 = bgBuf.toString("base64");
+
     const fontSize = Math.round(80 * scaleFactor);
     const fontPaddingLeft = Math.round(74 * scaleFactor);
     const fontPaddingTop = Math.round(215 * scaleFactor);
     const shadowOffset = Math.round(2 * scaleFactor);
     const safeName = escapeXml(memberName);
 
-    const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <style>
-        .name-light { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.lightPress}; }
-        .name-dark { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.darkPress}; }
-        .name-main { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.ink}; }
-      </style>
+    const svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <style>
+          .name-light { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.lightPress}; }
+          .name-dark { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.darkPress}; }
+          .name-main { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.ink}; }
+        </style>
+      </defs>
+      <image href="data:image/png;base64,${bgBase64}" width="${width}" height="${height}" />
       <text x="${fontPaddingLeft}" y="${fontPaddingTop + shadowOffset}" class="name-light">${safeName}</text>
       <text x="${fontPaddingLeft}" y="${fontPaddingTop - shadowOffset}" class="name-dark">${safeName}</text>
       <text x="${fontPaddingLeft}" y="${fontPaddingTop}" class="name-main">${safeName}</text>
     </svg>`;
 
-    return await sharp(baseStripPath)
-      .resize(width, height)
-      .composite([{ input: Buffer.from(svg) }])
-      .png()
-      .toBuffer();
+    const resvg = new ResvgClass(svg, {
+      font: { loadSystemFonts: true },
+    });
+
+    const pngData = resvg.render();
+    return pngData.asPng();
   } catch (err) {
-    console.error("Failed to render dynamic strip with sharp:", err);
+    console.error("Failed to render dynamic strip with resvg:", err);
     return null;
   }
 }
@@ -342,22 +360,22 @@ export async function buildApplePass(
     if (data) files[destName] = data;
   }
 
-  // Dynamically render strip image per member using sharp with letterpress engraving!
-  const strip3xBuf = await renderMemberStripPng(
+  // Dynamically render strip image per member using resvg WASM with letterpress engraving!
+  const strip3xBuf = renderMemberStripPng(
     tierKey,
     member.name,
     1125,
     369,
     1.0,
   );
-  const strip2xBuf = await renderMemberStripPng(
+  const strip2xBuf = renderMemberStripPng(
     tierKey,
     member.name,
     750,
     246,
     750 / 1125,
   );
-  const strip1xBuf = await renderMemberStripPng(
+  const strip1xBuf = renderMemberStripPng(
     tierKey,
     member.name,
     375,
