@@ -195,7 +195,13 @@ export async function buildApplePass(
           value: `${stampsCount} / ${totalStamps}`,
         },
       ],
-      primaryFields: [],
+      primaryFields: [
+        {
+          key: "name",
+          label: "MEMBRU",
+          value: member.name,
+        },
+      ],
       secondaryFields: [
         {
           key: "reward",
