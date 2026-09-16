@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { zipSync } from "fflate";
+import forge from "node-forge";
 import type { Member } from "../db";
 import type { LoyaltyConfig } from "../loyalty";
 import type { MemberCard } from "../card";
@@ -69,6 +70,77 @@ const ORIGINS_LOCATIONS = [
   },
 ];
 
+function signManifest(manifestJson: string): Buffer {
+  const p12Base64 = process.env.APPLE_CERT_P12_BASE64;
+  const p12Password = process.env.APPLE_CERT_PASSWORD ?? "origins2024";
+  const wwdrPath = path.join(
+    process.cwd(),
+    "public",
+    "wallet",
+    "apple",
+    "wwdr.pem",
+  );
+
+  if (!p12Base64) {
+    // Return placeholder if cert not configured yet
+    return Buffer.from("UNSIGNED_PLACEHOLDER");
+  }
+
+  try {
+    const p12Der = Buffer.from(p12Base64, "base64");
+    const p12Asn1 = forge.asn1.fromDer(
+      forge.util.binary.raw.encode(new Uint8Array(p12Der)),
+    );
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, p12Password);
+
+    // Extract cert and key from p12
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+    const keyBags = p12.getBags({
+      bagType: forge.pki.oids.pkcs8ShroudedKeyBag,
+    });
+
+    const certBag = certBags[forge.pki.oids.certBag]?.[0];
+    const keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]?.[0];
+
+    if (!certBag?.cert || !keyBag?.key) {
+      throw new Error("Could not extract cert/key from p12");
+    }
+
+    const cert = certBag.cert;
+    const privateKey = keyBag.key;
+
+    // Load WWDR intermediate cert
+    const wwdrPem = fs.readFileSync(wwdrPath, "utf8");
+    const wwdrCert = forge.pki.certificateFromPem(wwdrPem);
+
+    // Build PKCS#7 signed-data (detached)
+    const p7 = forge.pkcs7.createSignedData();
+    p7.content = forge.util.createBuffer(manifestJson, "utf8");
+    p7.addCertificate(cert);
+    p7.addCertificate(wwdrCert);
+    p7.addSigner({
+      key: privateKey as forge.pki.rsa.PrivateKey,
+      certificate: cert,
+      digestAlgorithm: forge.pki.oids.sha256,
+      authenticatedAttributes: [
+        {
+          type: forge.pki.oids.contentType,
+          value: forge.pki.oids.data,
+        },
+        { type: forge.pki.oids.messageDigest },
+        { type: forge.pki.oids.signingTime, value: new Date().toUTCString() },
+      ],
+    });
+    p7.sign({ detached: true });
+
+    const derBytes = forge.asn1.toDer(p7.toAsn1()).getBytes();
+    return Buffer.from(derBytes, "binary");
+  } catch (err) {
+    console.error("[apple-wallet] signing error:", err);
+    return Buffer.from("SIGNING_ERROR_PLACEHOLDER");
+  }
+}
+
 export async function buildApplePass(
   member: Member,
   card: MemberCard,
@@ -81,10 +153,11 @@ export async function buildApplePass(
       : "circle";
   const tier = TIER_CONFIGS[tierKey];
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.originscafe.ro";
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL || "https://app.originscafe.ro";
   const passTypeId =
     process.env.APPLE_PASS_TYPE_ID || "pass.ro.originscafe.circle";
-  const teamId = process.env.APPLE_TEAM_ID || "TEAM_ID_APPLE";
+  const teamId = process.env.APPLE_TEAM_ID || "B6WGU5CX63";
 
   const stampsCount = Math.min(card.progress, card.spec.cycleLength);
   const totalStamps = card.spec.cycleLength;
@@ -200,7 +273,6 @@ export async function buildApplePass(
     [`${tier.logo}@2x.png`]: "logo@2x.png",
     [`${tier.logo}@3x.png`]: "logo@3x.png",
   };
-
   for (const [srcName, destName] of Object.entries(logoMap)) {
     const data = readAsset(srcName);
     if (data) files[destName] = data;
@@ -212,23 +284,24 @@ export async function buildApplePass(
     [`${tier.strip}@2x.png`]: "strip@2x.png",
     [`${tier.strip}@3x.png`]: "strip@3x.png",
   };
-
   for (const [srcName, destName] of Object.entries(stripMap)) {
     const data = readAsset(srcName);
     if (data) files[destName] = data;
   }
 
-  // Build manifest.json
+  // Build manifest.json (SHA1 hash of every file)
   const manifest: Record<string, string> = {};
   for (const [filename, content] of Object.entries(files)) {
-    const hash = crypto.createHash("sha1").update(content).digest("hex");
-    manifest[filename] = hash;
+    manifest[filename] = crypto
+      .createHash("sha1")
+      .update(content)
+      .digest("hex");
   }
-
   files["manifest.json"] = Buffer.from(JSON.stringify(manifest, null, 2));
 
-  // Placeholder PKCS#7 signature or real certificate signature if configured
-  files["signature"] = Buffer.from("DEVELOPMENT_UNSIGNED_PASS_MANIFEST");
+  // Sign manifest with real Apple certificate (PKCS#7 detached)
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  files["signature"] = signManifest(manifestJson);
 
   return zipSync(files);
 }
