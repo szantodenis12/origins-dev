@@ -612,7 +612,7 @@ export function createMemoryDb(): Db {
 
       if (kind === "review_bonus") member.reviewBonusGiven = true;
 
-      notifyPassUpdated(member.passSerial).catch(() => {});
+      await notifyPassUpdated(member.passSerial);
 
       return { status: "added", event };
     },
@@ -659,7 +659,7 @@ export function createMemoryDb(): Db {
       };
       store.redemptions.push(redemption);
 
-      notifyPassUpdated(member.passSerial).catch(() => {});
+      await notifyPassUpdated(member.passSerial);
 
       return { status: "redeemed", redemption };
     },

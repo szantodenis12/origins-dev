@@ -32,7 +32,7 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     label: "rgb(110, 88, 38)",
     logo: "logo-forest",
     strip: "strip-gold",
-    logoText: "Gold Circle",
+    logoText: "Gold",
   },
   student: {
     background: "rgb(26, 27, 25)",
@@ -40,7 +40,7 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     label: "rgb(143, 154, 112)",
     logo: "logo-pale",
     strip: "strip-student",
-    logoText: "Student Circle",
+    logoText: "Student",
   },
 };
 

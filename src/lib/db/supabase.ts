@@ -290,7 +290,7 @@ export function createSupabaseDb(): Db {
           .eq("id", input.memberId);
       }
 
-      notifyPassUpdated(member.passSerial).catch(() => {});
+      await notifyPassUpdated(member.passSerial);
 
       return {
         status: "added",
@@ -335,7 +335,7 @@ export function createSupabaseDb(): Db {
 
       if (error || !data) throw new Error(`Redeem failed: ${error?.message}`);
 
-      notifyPassUpdated(member.passSerial).catch(() => {});
+      await notifyPassUpdated(member.passSerial);
 
       return {
         status: "redeemed",
