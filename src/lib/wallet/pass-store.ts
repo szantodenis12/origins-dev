@@ -182,24 +182,24 @@ export async function getRegistrationsForSerial(
 export async function getSerialNumbersForDevice(
   deviceId: string,
   passTypeId: string,
-  passesUpdatedSince?: string,
+  _passesUpdatedSince?: string,
 ): Promise<{ lastUpdated: string; serialNumbers: string[] }> {
   const allRegs = await loadRegistrationsFromSupabase();
   const serials = new Set<string>();
-  let latestUpdate = new Date(0);
+  let latestUpdate = new Date();
 
   for (const reg of allRegs) {
     if (reg.deviceId === deviceId && reg.passTypeId === passTypeId) {
+      serials.add(reg.serialNumber);
       const regTime = new Date(reg.updatedAt);
-      if (!passesUpdatedSince || regTime > new Date(passesUpdatedSince)) {
-        serials.add(reg.serialNumber);
+      if (!isNaN(regTime.getTime()) && regTime > latestUpdate) {
+        latestUpdate = regTime;
       }
-      if (regTime > latestUpdate) latestUpdate = regTime;
     }
   }
 
   return {
-    lastUpdated: latestUpdate.getTime() > 0 ? latestUpdate.toISOString() : new Date().toISOString(),
+    lastUpdated: latestUpdate.toISOString(),
     serialNumbers: Array.from(serials),
   };
 }
