@@ -128,12 +128,13 @@ async function renderStripWithName(
       });
     }
 
-    // Centered member name text overlay
+    // Centered member name + tier badge text overlay
     children.push({
       type: "div",
       props: {
         style: {
           display: "flex",
+          flexDirection: "column",
           position: "absolute",
           top: 0,
           left: 0,
@@ -141,20 +142,36 @@ async function renderStripWithName(
           height: "100%",
           alignItems: "center",
           justifyContent: "center",
+          gap: "10px",
         },
-        children: {
-          type: "span",
-          props: {
-            style: {
-              fontFamily: "Georgia",
-              fontSize: 60,
-              color: tier.foreground,
-              letterSpacing: "0.06em",
-              fontWeight: 400,
+        children: [
+          {
+            type: "span",
+            props: {
+              style: {
+                fontFamily: "Georgia",
+                fontSize: 52,
+                color: tier.foreground,
+                letterSpacing: "0.04em",
+                fontWeight: 400,
+              },
+              children: memberName,
             },
-            children: memberName,
           },
-        },
+          {
+            type: "span",
+            props: {
+              style: {
+                fontFamily: "Georgia",
+                fontSize: 20,
+                color: tier.label,
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+              },
+              children: tier.logoText,
+            },
+          },
+        ],
       },
     });
 
