@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   title: "Origins Coffee & Drinks",
   description:
     "Meniul digital, cardul de fidelitate și locațiile Origins Coffee & Drinks Oradea.",
+  icons: {
+    icon: "/icon.jpg",
+    shortcut: "/favicon.ico",
+    apple: "/apple-icon.jpg",
+  },
 };
 
 export const viewport: Viewport = {
