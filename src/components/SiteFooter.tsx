@@ -21,6 +21,18 @@ export default function SiteFooter({ location }: { location?: Location }) {
       )}
       <br />
       {tx(ui.site, lang)}
+      <br />
+      <span className="mt-1 block text-[11.5px] opacity-75">
+        Creat de{" "}
+        <a
+          href="https://epicdigitalhub.ro"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-ink underline decoration-sage-deep underline-offset-2 hover:text-sage-deep"
+        >
+          Epic Digital Hub
+        </a>
+      </span>
     </footer>
   );
 }
