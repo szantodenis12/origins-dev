@@ -8,47 +8,45 @@ export interface PassRegistration {
   updatedAt: string;
 }
 
-// In-memory cache for fast local access
 const memoryStore = new Map<string, PassRegistration>();
 
 function getKey(deviceId: string, passTypeId: string, serialNumber: string): string {
   return `${deviceId}:${passTypeId}:${serialNumber}`;
 }
 
-/**
- * Persist pass registrations inside Supabase `loyalty_config` table
- * under `config._passRegistrations` so it persists reliably across all Vercel serverless functions!
- */
-async function loadRegistrationsFromSupabase(): Promise<PassRegistration[]> {
-  if (!supabaseClient) return Array.from(memoryStore.values());
+export async function loadRegistrationsFromSupabase(): Promise<PassRegistration[]> {
+  const map = new Map<string, PassRegistration>();
 
+  // 1. Memory cache
+  for (const r of memoryStore.values()) {
+    map.set(getKey(r.deviceId, r.passTypeId, r.serialNumber), r);
+  }
+
+  if (!supabaseClient) return Array.from(map.values());
+
+  // 2. Try dedicated table `apple_pass_registrations`
   try {
     const { data, error } = await supabaseClient
-      .from("loyalty_config")
-      .select("config")
-      .eq("id", true)
-      .single();
+      .from("apple_pass_registrations")
+      .select("*");
 
-    if (error || !data?.config?._passRegistrations) {
-      return Array.from(memoryStore.values());
+    if (!error && data && data.length > 0) {
+      for (const row of data) {
+        const reg: PassRegistration = {
+          deviceId: row.device_id,
+          passTypeId: row.pass_type_id,
+          serialNumber: row.serial_number,
+          pushToken: row.push_token,
+          updatedAt: row.updated_at,
+        };
+        map.set(getKey(reg.deviceId, reg.passTypeId, reg.serialNumber), reg);
+        memoryStore.set(getKey(reg.deviceId, reg.passTypeId, reg.serialNumber), reg);
+      }
+      return Array.from(map.values());
     }
+  } catch {}
 
-    const regs: PassRegistration[] = data.config._passRegistrations;
-    // Populate memory cache
-    for (const r of regs) {
-      const k = getKey(r.deviceId, r.passTypeId, r.serialNumber);
-      memoryStore.set(k, r);
-    }
-    return regs;
-  } catch (err) {
-    console.warn("[pass-store] error loading from Supabase:", err);
-    return Array.from(memoryStore.values());
-  }
-}
-
-async function saveRegistrationsToSupabase(regs: PassRegistration[]): Promise<void> {
-  if (!supabaseClient) return;
-
+  // 3. Fallback to `loyalty_config` JSON column
   try {
     const { data } = await supabaseClient
       .from("loyalty_config")
@@ -56,18 +54,16 @@ async function saveRegistrationsToSupabase(regs: PassRegistration[]): Promise<vo
       .eq("id", true)
       .single();
 
-    const currentConfig = data?.config || {};
-    const updatedConfig = {
-      ...currentConfig,
-      _passRegistrations: regs,
-    };
+    if (data?.config?._passRegistrations) {
+      const regs: PassRegistration[] = data.config._passRegistrations;
+      for (const r of regs) {
+        map.set(getKey(r.deviceId, r.passTypeId, r.serialNumber), r);
+        memoryStore.set(getKey(r.deviceId, r.passTypeId, r.serialNumber), r);
+      }
+    }
+  } catch {}
 
-    await supabaseClient
-      .from("loyalty_config")
-      .upsert({ id: true, config: updatedConfig });
-  } catch (err) {
-    console.warn("[pass-store] error saving to Supabase:", err);
-  }
+  return Array.from(map.values());
 }
 
 export async function registerDevicePass(
@@ -88,22 +84,48 @@ export async function registerDevicePass(
 
   memoryStore.set(key, newReg);
 
-  const allRegs = await loadRegistrationsFromSupabase();
-  const existingIndex = allRegs.findIndex(
-    (r) =>
-      r.deviceId === deviceId &&
-      r.passTypeId === passTypeId &&
-      r.serialNumber === serialNumber,
-  );
+  if (!supabaseClient) return true;
 
-  if (existingIndex >= 0) {
-    allRegs[existingIndex] = newReg;
-  } else {
-    allRegs.push(newReg);
-  }
+  // Try dedicated table `apple_pass_registrations`
+  try {
+    const { error } = await supabaseClient
+      .from("apple_pass_registrations")
+      .upsert({
+        device_id: deviceId,
+        pass_type_id: passTypeId,
+        serial_number: serialNumber,
+        push_token: pushToken,
+        updated_at: updatedAt,
+      });
 
-  await saveRegistrationsToSupabase(allRegs);
-  console.log(`[pass-store] Saved registration for pass ${serialNumber} on device ${deviceId} (total: ${allRegs.length})`);
+    if (!error) {
+      console.log(`[pass-store] Upserted registration in apple_pass_registrations table for ${serialNumber}`);
+    }
+  } catch {}
+
+  // Also save to `loyalty_config`
+  try {
+    const allRegs = await loadRegistrationsFromSupabase();
+    const idx = allRegs.findIndex(
+      (r) =>
+        r.deviceId === deviceId &&
+        r.passTypeId === passTypeId &&
+        r.serialNumber === serialNumber,
+    );
+    if (idx >= 0) allRegs[idx] = newReg;
+    else allRegs.push(newReg);
+
+    const { data } = await supabaseClient
+      .from("loyalty_config")
+      .select("config")
+      .eq("id", true)
+      .single();
+
+    const currentConfig = data?.config || {};
+    await supabaseClient
+      .from("loyalty_config")
+      .upsert({ id: true, config: { ...currentConfig, _passRegistrations: allRegs } });
+  } catch {}
 
   return true;
 }
@@ -116,18 +138,36 @@ export async function unregisterDevicePass(
   const key = getKey(deviceId, passTypeId, serialNumber);
   memoryStore.delete(key);
 
-  const allRegs = await loadRegistrationsFromSupabase();
-  const filtered = allRegs.filter(
-    (r) =>
-      !(
-        r.deviceId === deviceId &&
-        r.passTypeId === passTypeId &&
-        r.serialNumber === serialNumber
-      ),
-  );
+  if (supabaseClient) {
+    try {
+      await supabaseClient
+        .from("apple_pass_registrations")
+        .delete()
+        .eq("device_id", deviceId)
+        .eq("pass_type_id", passTypeId)
+        .eq("serial_number", serialNumber);
+    } catch {}
 
-  await saveRegistrationsToSupabase(filtered);
-  console.log(`[pass-store] Unregistered pass ${serialNumber} on device ${deviceId}`);
+    try {
+      const allRegs = await loadRegistrationsFromSupabase();
+      const filtered = allRegs.filter(
+        (r) =>
+          !(
+            r.deviceId === deviceId &&
+            r.passTypeId === passTypeId &&
+            r.serialNumber === serialNumber
+          ),
+      );
+      const { data } = await supabaseClient
+        .from("loyalty_config")
+        .select("config")
+        .eq("id", true)
+        .single();
+      await supabaseClient
+        .from("loyalty_config")
+        .upsert({ id: true, config: { ...(data?.config || {}), _passRegistrations: filtered } });
+    } catch {}
+  }
 
   return true;
 }
