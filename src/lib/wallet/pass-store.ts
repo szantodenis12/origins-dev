@@ -204,6 +204,38 @@ export async function getSerialNumbersForDevice(
   };
 }
 
+export async function touchPassRegistration(serialNumber: string): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  if (supabaseClient) {
+    try {
+      await supabaseClient
+        .from("apple_pass_registrations")
+        .update({ updated_at: updatedAt })
+        .eq("serial_number", serialNumber);
+    } catch {}
+  }
+  const allRegs = await loadRegistrationsFromSupabase();
+  let changed = false;
+  for (const r of allRegs) {
+    if (r.serialNumber === serialNumber) {
+      r.updatedAt = updatedAt;
+      changed = true;
+    }
+  }
+  if (changed && supabaseClient) {
+    try {
+      const { data } = await supabaseClient
+        .from("loyalty_config")
+        .select("config")
+        .eq("id", true)
+        .single();
+      await supabaseClient
+        .from("loyalty_config")
+        .upsert({ id: true, config: { ...(data?.config || {}), _passRegistrations: allRegs } });
+    } catch {}
+  }
+}
+
 export async function listAllRegistrations(): Promise<PassRegistration[]> {
   return loadRegistrationsFromSupabase();
 }

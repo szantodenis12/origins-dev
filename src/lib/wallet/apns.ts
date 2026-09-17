@@ -1,5 +1,5 @@
 import http2 from "node:http2";
-import { getRegistrationsForSerial } from "./pass-store";
+import { getRegistrationsForSerial, touchPassRegistration } from "./pass-store";
 
 function getTlsOptions(): { pfx: Buffer; passphrase: string } | null {
   const p12Base64 = process.env.APPLE_CERT_P12_BASE64;
@@ -41,9 +41,7 @@ async function sendToApnsHost(
         ":method": "POST",
         ":path": `/3/device/${pushToken}`,
         "apns-topic": topic,
-        "apns-push-type": "background",
-        "apns-priority": "5",
-        "content-type": "application/json",
+        "apns-expiration": "0",
       });
 
       req.on("response", (headers) => {
@@ -93,6 +91,7 @@ export async function sendApnsNotification(
 
 export async function notifyPassUpdated(serialNumber: string): Promise<void> {
   try {
+    await touchPassRegistration(serialNumber);
     const registrations = await getRegistrationsForSerial(serialNumber);
     if (registrations.length === 0) {
       console.log(`[apns] No registered devices found for serial ${serialNumber}`);
