@@ -354,7 +354,6 @@ export async function buildApplePass(
             stampsCount >= totalStamps
               ? "Card complet! Cafea gratuită"
               : `Mai ai ${totalStamps - stampsCount} ștampile`,
-          changeMessage: "Recompensa Origins: %@",
         },
       ],
       auxiliaryFields: [
