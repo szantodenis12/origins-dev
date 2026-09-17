@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import type { PushCampaign } from "@/lib/db";
 import { readStaffSession } from "@/lib/admin/session";
 import { isOfferedSegment, MAX_MESSAGE } from "./shared";
+import { notifyAllPassesUpdated } from "@/lib/wallet/apns";
 
 /**
  * Push composer mutations. A server function is reachable by direct POST, so
@@ -56,6 +57,27 @@ export async function createCampaignAction(
     segment,
     staffId: staff?.id ?? null,
   });
+
+  // Filter targeted members based on segment
+  try {
+    const allMembers = await getDb().listMembers();
+    let targetSerials: string[] = [];
+
+    if (segment === "all") {
+      targetSerials = allMembers.map((m) => m.passSerial).filter((s): s is string => !!s);
+    } else if (segment === "students") {
+      targetSerials = allMembers.filter((m) => m.isStudent).map((m) => m.passSerial).filter((s): s is string => !!s);
+    } else if (segment === "ro" || segment === "hu") {
+      targetSerials = allMembers.filter((m) => m.lang === segment).map((m) => m.passSerial).filter((s): s is string => !!s);
+    } else {
+      targetSerials = allMembers.map((m) => m.passSerial).filter((s): s is string => !!s);
+    }
+
+    // Broadcast APNs push notification to all targeted passes
+    await notifyAllPassesUpdated(targetSerials);
+  } catch (err) {
+    console.error("[push-action] Error sending broadcast notifications:", err);
+  }
 
   // The list comes back with the campaign so the history updates in place.
   return { ok: true, campaign, campaigns: await getDb().listPushCampaigns() };

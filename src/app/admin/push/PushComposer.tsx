@@ -26,7 +26,7 @@ const strings = {
   submit: "Trimite",
   saved: "Mesajul a fost înregistrat.",
   notice:
-    "Pass-urile Wallet apar în faza 3. Până atunci campania se salvează aici, dar niciun telefon nu primește notificarea.",
+    "Notificarea push va fi transmisă automat către toate cardurile Apple Wallet înregistrate pentru segmentul selectat.",
   history: "Trimise până acum",
   empty: "Nu ai trimis încă niciun mesaj.",
   passes: (count: number) =>

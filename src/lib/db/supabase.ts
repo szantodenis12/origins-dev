@@ -831,13 +831,19 @@ export function createSupabaseDb(): Db {
     /* -------------------------------------------------------- push --- */
     async createPushCampaign(input: NewPushCampaignInput): Promise<PushCampaign> {
       const now = input.now ?? new Date();
+      const validStaffId =
+        input.staffId &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.staffId)
+          ? input.staffId
+          : null;
+
       const { data, error } = await client
         .from("push_campaigns")
         .insert({
           message_ro: input.messageRo,
           message_hu: input.messageHu ?? null,
           segment: input.segment,
-          created_by: input.staffId ?? null,
+          created_by: validStaffId,
           created_at: now.toISOString(),
           sent_at: now.toISOString(),
         })

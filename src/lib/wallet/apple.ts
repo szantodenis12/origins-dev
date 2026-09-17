@@ -5,6 +5,7 @@ import { zipSync } from "fflate";
 import forge from "node-forge";
 import { ImageResponse } from "next/og";
 import type { Member } from "../db";
+import { getDb } from "../db";
 import type { LoyaltyConfig } from "../loyalty";
 import type { MemberCard } from "../card";
 
@@ -306,6 +307,25 @@ export async function buildApplePass(
     year: "numeric",
   });
 
+  // Fetch latest push campaign for member
+  let latestCampaignMessage: string | null = null;
+  try {
+    const campaigns = await getDb().listPushCampaigns();
+    if (campaigns && campaigns.length > 0) {
+      const match = campaigns.find(
+        (c) =>
+          c.segment === "all" ||
+          c.segment === member.lang ||
+          (c.segment === "students" && member.isStudent) ||
+          (c.segment === "gold" && tierKey === "gold"),
+      );
+      if (match) {
+        latestCampaignMessage =
+          member.lang === "hu" && match.messageHu ? match.messageHu : match.messageRo;
+      }
+    }
+  } catch {}
+
   // Try rendering strip image with member name in Georgia font
   const stripPng = await renderStripWithName(member.name, tierKey);
   const hasStrip = stripPng !== null;
@@ -361,6 +381,16 @@ export async function buildApplePass(
         { key: "serial", label: "CARD", value: member.passSerial },
       ],
       backFields: [
+        ...(latestCampaignMessage
+          ? [
+              {
+                key: "noutate",
+                label: "Noutăți Origins",
+                value: latestCampaignMessage,
+                changeMessage: "Noutate Origins: %@",
+              },
+            ]
+          : []),
         {
           key: "cum",
           label: "Cum funcționează",

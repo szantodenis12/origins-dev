@@ -1,5 +1,5 @@
 import http2 from "node:http2";
-import { getRegistrationsForSerial, touchPassRegistration } from "./pass-store";
+import { getRegistrationsForSerial, loadRegistrationsFromSupabase, touchPassRegistration } from "./pass-store";
 
 function getTlsOptions(): { pfx: Buffer; passphrase: string } | null {
   const p12Base64 = process.env.APPLE_CERT_P12_BASE64;
@@ -104,5 +104,32 @@ export async function notifyPassUpdated(serialNumber: string): Promise<void> {
     }
   } catch (err) {
     console.error("[apns] notifyPassUpdated error:", err);
+  }
+}
+
+export async function notifyAllPassesUpdated(serialNumbers?: string[]): Promise<number> {
+  try {
+    const allRegistrations = await loadRegistrationsFromSupabase();
+    if (allRegistrations.length === 0) {
+      console.log("[apns] No registered devices found across all passes");
+      return 0;
+    }
+
+    const targetSerials = serialNumbers && serialNumbers.length > 0 ? new Set(serialNumbers) : null;
+    const filtered = targetSerials
+      ? allRegistrations.filter((r) => targetSerials.has(r.serialNumber))
+      : allRegistrations;
+
+    console.log(`[apns] Broadcasting APNs push update to ${filtered.length} registered device(s)`);
+    let sentCount = 0;
+    for (const reg of filtered) {
+      await touchPassRegistration(reg.serialNumber);
+      const ok = await sendApnsNotification(reg.pushToken, reg.passTypeId);
+      if (ok) sentCount++;
+    }
+    return sentCount;
+  } catch (err) {
+    console.error("[apns] notifyAllPassesUpdated error:", err);
+    return 0;
   }
 }
