@@ -939,45 +939,97 @@ export function createSupabaseDb(): Db {
     /* ------------------------------------------------------- stats --- */
     async getStats(now: Date = new Date()): Promise<PlatformStats> {
       const members = await this.listMembers();
-      const stamps = await client.from("stamp_events").select("*");
-      const redemptions = await client.from("redemptions").select("*");
+      const stampsRes = await client.from("stamp_events").select("*");
+      const redemptionsRes = await client.from("redemptions").select("*");
       const campaigns = await this.listPushCampaigns();
       const locations = await this.listLocations();
       const baristas = await this.listStaff();
+      const config = await this.getLoyaltyConfig();
+
+      const stamps: StampEvent[] = stampsRes.data
+        ? stampsRes.data.map((s) => ({
+            id: s.id,
+            memberId: s.member_id,
+            locationSlug: s.location_slug,
+            staffId: s.staff_id,
+            kind: s.kind as StampKind,
+            createdAt: s.created_at,
+          }))
+        : [];
+
+      const redemptions: Redemption[] = redemptionsRes.data
+        ? redemptionsRes.data.map((r) => ({
+            id: r.id,
+            memberId: r.member_id,
+            rewardId: r.reward_id,
+            locationSlug: r.location_slug,
+            staffId: r.staff_id,
+            createdAt: r.created_at,
+          }))
+        : [];
+
+      const DAY = 24 * 60 * 60 * 1000;
+      const t7 = now.getTime() - 7 * DAY;
+      const t30 = now.getTime() - 30 * DAY;
+      const since = (iso: string, t: number) => new Date(iso).getTime() >= t;
+
+      const byReward = new Map<string, number>();
+      for (const r of redemptions) {
+        byReward.set(r.rewardId, (byReward.get(r.rewardId) ?? 0) + 1);
+      }
+
+      const locationStatsList: LocationStats[] = locations.map((loc) => {
+        const locStamps = stamps.filter((s) => s.locationSlug === loc.slug);
+        const locRedemptions = redemptions.filter((r) => r.locationSlug === loc.slug);
+
+        return {
+          slug: loc.slug,
+          name: loc.name,
+          stamps7d: locStamps.filter((s) => since(s.createdAt, t7)).length,
+          stamps30d: locStamps.filter((s) => since(s.createdAt, t30)).length,
+          redemptions30d: locRedemptions.filter((r) => since(r.createdAt, t30)).length,
+          googleRating: loc.googleRating,
+          googleReviewCount: loc.googleReviewCount,
+        };
+      });
+
+      const baristaStatsList = baristas
+        .filter((b) => b.role === "barista")
+        .map((b) => {
+          const locName = locations.find((l) => l.slug === b.locationSlug)?.name ?? b.locationSlug;
+          return {
+            staffId: b.id,
+            name: b.name,
+            locationSlug: b.locationSlug,
+            locationName: locName,
+            stamps7d: stamps.filter((e) => e.staffId === b.id && since(e.createdAt, t7)).length,
+            stamps30d: stamps.filter((e) => e.staffId === b.id && since(e.createdAt, t30)).length,
+            redemptions30d: redemptions.filter((r) => r.staffId === b.id && since(r.createdAt, t30)).length,
+          };
+        })
+        .sort((a, b) => b.stamps30d - a.stamps30d);
 
       return {
         membersTotal: members.length,
-        members30d: members.length,
+        members30d: members.filter((m) => since(m.createdAt, t30)).length,
         studentsTotal: members.filter((m) => m.isStudent).length,
-        studentsVerified: members.filter((m) => m.studentVerifiedAt).length,
+        studentsVerified: members.filter((m) => m.studentVerifiedAt !== null).length,
         goldMembers: 0,
         consentOutdated: 0,
         retentionDue: 0,
-        stampsTotal: stamps.data?.length ?? 0,
-        stamps7d: stamps.data?.length ?? 0,
-        stamps30d: stamps.data?.length ?? 0,
-        redemptionsTotal: redemptions.data?.length ?? 0,
-        redemptionsByReward: [],
-        reviewBonuses: members.filter((m) => m.reviewBonusGiven).length,
+        stampsTotal: stamps.length,
+        stamps7d: stamps.filter((s) => since(s.createdAt, t7)).length,
+        stamps30d: stamps.filter((s) => since(s.createdAt, t30)).length,
+        redemptionsTotal: redemptions.length,
+        redemptionsByReward: [...byReward.entries()].map(([rewardId, count]) => ({
+          rewardId: rewardId as any,
+          name: config.names[rewardId as keyof typeof config.names]?.ro ?? rewardId,
+          count,
+        })),
+        reviewBonuses: stamps.filter((s) => s.kind === "review_bonus").length,
         campaignsSent: campaigns.length,
-        locations: locations.map((l) => ({
-          slug: l.slug,
-          name: l.name,
-          stamps7d: 0,
-          stamps30d: 0,
-          redemptions30d: 0,
-          googleRating: l.googleRating,
-          googleReviewCount: l.googleReviewCount,
-        })),
-        baristas: baristas.map((b) => ({
-          staffId: b.id,
-          name: b.name,
-          locationSlug: b.locationSlug,
-          locationName: b.locationSlug,
-          stamps7d: 0,
-          stamps30d: 0,
-          redemptions30d: 0,
-        })),
+        locations: locationStatsList,
+        baristas: baristaStatsList,
       };
     },
   };
