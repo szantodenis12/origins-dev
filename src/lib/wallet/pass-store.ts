@@ -8,11 +8,66 @@ export interface PassRegistration {
   updatedAt: string;
 }
 
-// In-memory fallback if Supabase table is not yet provisioned
+// In-memory cache for fast local access
 const memoryStore = new Map<string, PassRegistration>();
 
 function getKey(deviceId: string, passTypeId: string, serialNumber: string): string {
   return `${deviceId}:${passTypeId}:${serialNumber}`;
+}
+
+/**
+ * Persist pass registrations inside Supabase `loyalty_config` table
+ * under `config._passRegistrations` so it persists reliably across all Vercel serverless functions!
+ */
+async function loadRegistrationsFromSupabase(): Promise<PassRegistration[]> {
+  if (!supabaseClient) return Array.from(memoryStore.values());
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("loyalty_config")
+      .select("config")
+      .eq("id", true)
+      .single();
+
+    if (error || !data?.config?._passRegistrations) {
+      return Array.from(memoryStore.values());
+    }
+
+    const regs: PassRegistration[] = data.config._passRegistrations;
+    // Populate memory cache
+    for (const r of regs) {
+      const k = getKey(r.deviceId, r.passTypeId, r.serialNumber);
+      memoryStore.set(k, r);
+    }
+    return regs;
+  } catch (err) {
+    console.warn("[pass-store] error loading from Supabase:", err);
+    return Array.from(memoryStore.values());
+  }
+}
+
+async function saveRegistrationsToSupabase(regs: PassRegistration[]): Promise<void> {
+  if (!supabaseClient) return;
+
+  try {
+    const { data } = await supabaseClient
+      .from("loyalty_config")
+      .select("config")
+      .eq("id", true)
+      .single();
+
+    const currentConfig = data?.config || {};
+    const updatedConfig = {
+      ...currentConfig,
+      _passRegistrations: regs,
+    };
+
+    await supabaseClient
+      .from("loyalty_config")
+      .upsert({ id: true, config: updatedConfig });
+  } catch (err) {
+    console.warn("[pass-store] error saving to Supabase:", err);
+  }
 }
 
 export async function registerDevicePass(
@@ -23,34 +78,32 @@ export async function registerDevicePass(
 ): Promise<boolean> {
   const updatedAt = new Date().toISOString();
   const key = getKey(deviceId, passTypeId, serialNumber);
-
-  memoryStore.set(key, {
+  const newReg: PassRegistration = {
     deviceId,
     passTypeId,
     serialNumber,
     pushToken,
     updatedAt,
-  });
+  };
 
-  if (!supabaseClient) return true;
+  memoryStore.set(key, newReg);
 
-  try {
-    const { error } = await supabaseClient
-      .from("apple_pass_registrations")
-      .upsert({
-        device_id: deviceId,
-        pass_type_id: passTypeId,
-        serial_number: serialNumber,
-        push_token: pushToken,
-        updated_at: updatedAt,
-      });
+  const allRegs = await loadRegistrationsFromSupabase();
+  const existingIndex = allRegs.findIndex(
+    (r) =>
+      r.deviceId === deviceId &&
+      r.passTypeId === passTypeId &&
+      r.serialNumber === serialNumber,
+  );
 
-    if (error) {
-      console.warn("[apple-pass] Supabase registration upsert notice:", error.message);
-    }
-  } catch (err) {
-    console.warn("[apple-pass] Supabase registration error:", err);
+  if (existingIndex >= 0) {
+    allRegs[existingIndex] = newReg;
+  } else {
+    allRegs.push(newReg);
   }
+
+  await saveRegistrationsToSupabase(allRegs);
+  console.log(`[pass-store] Saved registration for pass ${serialNumber} on device ${deviceId} (total: ${allRegs.length})`);
 
   return true;
 }
@@ -63,18 +116,18 @@ export async function unregisterDevicePass(
   const key = getKey(deviceId, passTypeId, serialNumber);
   memoryStore.delete(key);
 
-  if (!supabaseClient) return true;
+  const allRegs = await loadRegistrationsFromSupabase();
+  const filtered = allRegs.filter(
+    (r) =>
+      !(
+        r.deviceId === deviceId &&
+        r.passTypeId === passTypeId &&
+        r.serialNumber === serialNumber
+      ),
+  );
 
-  try {
-    await supabaseClient
-      .from("apple_pass_registrations")
-      .delete()
-      .eq("device_id", deviceId)
-      .eq("pass_type_id", passTypeId)
-      .eq("serial_number", serialNumber);
-  } catch (err) {
-    console.warn("[apple-pass] Supabase registration delete error:", err);
-  }
+  await saveRegistrationsToSupabase(filtered);
+  console.log(`[pass-store] Unregistered pass ${serialNumber} on device ${deviceId}`);
 
   return true;
 }
@@ -82,39 +135,8 @@ export async function unregisterDevicePass(
 export async function getRegistrationsForSerial(
   serialNumber: string,
 ): Promise<PassRegistration[]> {
-  const results: PassRegistration[] = [];
-
-  // Memory store results
-  for (const reg of memoryStore.values()) {
-    if (reg.serialNumber === serialNumber) {
-      results.push(reg);
-    }
-  }
-
-  if (!supabaseClient) return results;
-
-  try {
-    const { data, error } = await supabaseClient
-      .from("apple_pass_registrations")
-      .select("*")
-      .eq("serial_number", serialNumber);
-
-    if (!error && data) {
-      for (const row of data) {
-        if (!results.some((r) => r.deviceId === row.device_id)) {
-          results.push({
-            deviceId: row.device_id,
-            passTypeId: row.pass_type_id,
-            serialNumber: row.serial_number,
-            pushToken: row.push_token,
-            updatedAt: row.updated_at,
-          });
-        }
-      }
-    }
-  } catch {}
-
-  return results;
+  const allRegs = await loadRegistrationsFromSupabase();
+  return allRegs.filter((r) => r.serialNumber === serialNumber);
 }
 
 export async function getSerialNumbersForDevice(
@@ -122,11 +144,11 @@ export async function getSerialNumbersForDevice(
   passTypeId: string,
   passesUpdatedSince?: string,
 ): Promise<{ lastUpdated: string; serialNumbers: string[] }> {
+  const allRegs = await loadRegistrationsFromSupabase();
   const serials = new Set<string>();
   let latestUpdate = new Date(0);
 
-  // Check memory store
-  for (const reg of memoryStore.values()) {
+  for (const reg of allRegs) {
     if (reg.deviceId === deviceId && reg.passTypeId === passTypeId) {
       const regTime = new Date(reg.updatedAt);
       if (!passesUpdatedSince || regTime > new Date(passesUpdatedSince)) {
@@ -136,31 +158,12 @@ export async function getSerialNumbersForDevice(
     }
   }
 
-  if (supabaseClient) {
-    try {
-      let query = supabaseClient
-        .from("apple_pass_registrations")
-        .select("*")
-        .eq("device_id", deviceId)
-        .eq("pass_type_id", passTypeId);
-
-      if (passesUpdatedSince) {
-        query = query.gt("updated_at", passesUpdatedSince);
-      }
-
-      const { data, error } = await query;
-      if (!error && data) {
-        for (const row of data) {
-          serials.add(row.serial_number);
-          const rowTime = new Date(row.updated_at);
-          if (rowTime > latestUpdate) latestUpdate = rowTime;
-        }
-      }
-    } catch {}
-  }
-
   return {
     lastUpdated: latestUpdate.getTime() > 0 ? latestUpdate.toISOString() : new Date().toISOString(),
     serialNumbers: Array.from(serials),
   };
+}
+
+export async function listAllRegistrations(): Promise<PassRegistration[]> {
+  return loadRegistrationsFromSupabase();
 }

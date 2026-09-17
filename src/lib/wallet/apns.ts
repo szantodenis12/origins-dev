@@ -1,5 +1,4 @@
 import http2 from "node:http2";
-import forge from "node-forge";
 import { getRegistrationsForSerial } from "./pass-store";
 
 function getTlsOptions(): { pfx: Buffer; passphrase: string } | null {
@@ -20,26 +19,22 @@ function getTlsOptions(): { pfx: Buffer; passphrase: string } | null {
   }
 }
 
-export async function sendApnsNotification(
+async function sendToApnsHost(
+  host: string,
   pushToken: string,
-  topic: string = process.env.APPLE_PASS_TYPE_ID || "pass.ro.originscafe.circle",
-): Promise<boolean> {
-  const tlsOpts = getTlsOptions();
-  if (!tlsOpts) {
-    console.warn("[apns] missing APPLE_CERT_P12_BASE64, APNs notification skipped");
-    return false;
-  }
-
+  topic: string,
+  tlsOpts: { pfx: Buffer; passphrase: string },
+): Promise<{ success: boolean; status?: number; error?: string }> {
   return new Promise((resolve) => {
     try {
-      const client = http2.connect("https://api.push.apple.com:443", {
+      const client = http2.connect(`https://${host}:443`, {
         pfx: tlsOpts.pfx,
         passphrase: tlsOpts.passphrase,
       });
 
       client.on("error", (err) => {
-        console.error("[apns] client connection error:", err);
-        resolve(false);
+        console.error(`[apns] connection error (${host}):`, err.message);
+        resolve({ success: false, error: err.message });
       });
 
       const req = client.request({
@@ -52,29 +47,48 @@ export async function sendApnsNotification(
       });
 
       req.on("response", (headers) => {
-        const status = headers[":status"];
+        const status = Number(headers[":status"]);
         client.close();
         if (status === 200) {
-          console.log(`[apns] Push notification successfully sent to device (${pushToken.substring(0, 8)}...)`);
-          resolve(true);
+          console.log(`[apns] Success (${host}) -> token ${pushToken.substring(0, 8)}...`);
+          resolve({ success: true, status });
         } else {
-          console.warn(`[apns] APNs responded with status ${status} for token ${pushToken.substring(0, 8)}...`);
-          resolve(false);
+          console.warn(`[apns] Rejected (${host}) status ${status} -> token ${pushToken.substring(0, 8)}...`);
+          resolve({ success: false, status });
         }
       });
 
       req.on("error", (err) => {
-        console.error("[apns] request error:", err);
+        console.error(`[apns] request error (${host}):`, err.message);
         client.close();
-        resolve(false);
+        resolve({ success: false, error: err.message });
       });
 
       req.end(JSON.stringify({}));
-    } catch (err) {
-      console.error("[apns] send error:", err);
-      resolve(false);
+    } catch (err: any) {
+      console.error(`[apns] exception (${host}):`, err?.message);
+      resolve({ success: false, error: err?.message });
     }
   });
+}
+
+export async function sendApnsNotification(
+  pushToken: string,
+  topic: string = process.env.APPLE_PASS_TYPE_ID || "pass.ro.originscafe.circle",
+): Promise<boolean> {
+  const tlsOpts = getTlsOptions();
+  if (!tlsOpts) {
+    console.warn("[apns] missing APPLE_CERT_P12_BASE64, APNs skipped");
+    return false;
+  }
+
+  // Try production APNs first
+  let res = await sendToApnsHost("api.push.apple.com", pushToken, topic, tlsOpts);
+  if (res.success) return true;
+
+  // Fall back to sandbox APNs
+  res = await sendToApnsHost("api.sandbox.push.apple.com", pushToken, topic, tlsOpts);
+  return res.success;
 }
 
 export async function notifyPassUpdated(serialNumber: string): Promise<void> {
