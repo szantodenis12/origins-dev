@@ -14,9 +14,6 @@ interface ApplePassColors {
   logo: string;
   strip: string;
   logoText: string;
-  ink: string;
-  lightPress: string;
-  darkPress: string;
 }
 
 const TIER_CONFIGS: Record<string, ApplePassColors> = {
@@ -27,9 +24,6 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     logo: "logo-forest",
     strip: "strip-circle",
     logoText: "Circle",
-    ink: "rgb(42, 59, 31)",
-    lightPress: "rgba(236, 239, 216, 0.5)",
-    darkPress: "rgba(26, 38, 18, 0.4)",
   },
   gold: {
     background: "rgb(190, 156, 84)",
@@ -38,9 +32,6 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     logo: "logo-forest",
     strip: "strip-gold",
     logoText: "Gold Circle",
-    ink: "rgb(58, 49, 19)",
-    lightPress: "rgba(240, 231, 200, 0.5)",
-    darkPress: "rgba(43, 35, 12, 0.45)",
   },
   student: {
     background: "rgb(26, 27, 25)",
@@ -49,9 +40,6 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     logo: "logo-pale",
     strip: "strip-student",
     logoText: "Student Circle",
-    ink: "rgb(207, 213, 173)",
-    lightPress: "rgba(0, 0, 0, 0.6)",
-    darkPress: "rgba(207, 213, 173, 0.22)",
   },
 };
 
@@ -82,79 +70,6 @@ const ORIGINS_LOCATIONS = [
     relevantText: "Ești la Origins Str. Aurel Lazăr. Scanează cardul la casă!",
   },
 ];
-
-function escapeXml(unsafe: string): string {
-  return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function getResvgClass() {
-  try {
-    const req = eval("require");
-    return req("@resvg/resvg-js").Resvg;
-  } catch {
-    return null;
-  }
-}
-
-function renderMemberStripPng(
-  tierKey: string,
-  memberName: string,
-  width: number,
-  height: number,
-  scaleFactor: number,
-): Buffer | null {
-  const ResvgClass = getResvgClass();
-  if (!ResvgClass) return null;
-
-  const tier = TIER_CONFIGS[tierKey] || TIER_CONFIGS.circle;
-  const walletDir = path.join(process.cwd(), "public", "wallet", "apple");
-  const baseStripName = `${tier.strip}@3x.png`;
-  const baseStripPath = path.join(walletDir, baseStripName);
-
-  if (!fs.existsSync(baseStripPath)) {
-    return null;
-  }
-
-  try {
-    const bgBuf = fs.readFileSync(baseStripPath);
-    const bgBase64 = bgBuf.toString("base64");
-
-    const fontSize = Math.round(80 * scaleFactor);
-    const fontPaddingLeft = Math.round(74 * scaleFactor);
-    const fontPaddingTop = Math.round(215 * scaleFactor);
-    const shadowOffset = Math.round(2 * scaleFactor);
-    const safeName = escapeXml(memberName);
-
-    const svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <style>
-          .name-light { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.lightPress}; }
-          .name-dark { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.darkPress}; }
-          .name-main { font-family: 'Georgia', 'Times New Roman', serif; font-size: ${fontSize}px; font-weight: 600; fill: ${tier.ink}; }
-        </style>
-      </defs>
-      <image href="data:image/png;base64,${bgBase64}" width="${width}" height="${height}" />
-      <text x="${fontPaddingLeft}" y="${fontPaddingTop + shadowOffset}" class="name-light">${safeName}</text>
-      <text x="${fontPaddingLeft}" y="${fontPaddingTop - shadowOffset}" class="name-dark">${safeName}</text>
-      <text x="${fontPaddingLeft}" y="${fontPaddingTop}" class="name-main">${safeName}</text>
-    </svg>`;
-
-    const resvg = new ResvgClass(svg, {
-      font: { loadSystemFonts: true },
-    });
-
-    const pngData = resvg.render();
-    return pngData.asPng();
-  } catch (err) {
-    console.error("Failed to render dynamic strip with resvg:", err);
-    return null;
-  }
-}
 
 function signManifest(manifestJson: string): Buffer {
   const p12Base64 = process.env.APPLE_CERT_P12_BASE64;
@@ -277,7 +192,12 @@ export async function buildApplePass(
           value: `${stampsCount} / ${totalStamps}`,
         },
       ],
-      primaryFields: [],
+      primaryFields: [
+        {
+          key: "name",
+          value: member.name,
+        },
+      ],
       secondaryFields: [
         {
           key: "reward",
@@ -360,44 +280,15 @@ export async function buildApplePass(
     if (data) files[destName] = data;
   }
 
-  // Dynamically render strip image per member using resvg WASM with letterpress engraving!
-  const strip3xBuf = renderMemberStripPng(
-    tierKey,
-    member.name,
-    1125,
-    369,
-    1.0,
-  );
-  const strip2xBuf = renderMemberStripPng(
-    tierKey,
-    member.name,
-    750,
-    246,
-    750 / 1125,
-  );
-  const strip1xBuf = renderMemberStripPng(
-    tierKey,
-    member.name,
-    375,
-    123,
-    375 / 1125,
-  );
-
-  if (strip3xBuf && strip2xBuf && strip1xBuf) {
-    files["strip@3x.png"] = strip3xBuf;
-    files["strip@2x.png"] = strip2xBuf;
-    files["strip.png"] = strip1xBuf;
-  } else {
-    // Fallback to static clean strips
-    const stripMap: Record<string, string> = {
-      [`${tier.strip}.png`]: "strip.png",
-      [`${tier.strip}@2x.png`]: "strip@2x.png",
-      [`${tier.strip}@3x.png`]: "strip@3x.png",
-    };
-    for (const [srcName, destName] of Object.entries(stripMap)) {
-      const data = readAsset(srcName);
-      if (data) files[destName] = data;
-    }
+  // Add clean strip images (texture background with embossed leaves)
+  const stripMap: Record<string, string> = {
+    [`${tier.strip}.png`]: "strip.png",
+    [`${tier.strip}@2x.png`]: "strip@2x.png",
+    [`${tier.strip}@3x.png`]: "strip@3x.png",
+  };
+  for (const [srcName, destName] of Object.entries(stripMap)) {
+    const data = readAsset(srcName);
+    if (data) files[destName] = data;
   }
 
   // Build manifest.json (SHA1 hash of every file)
