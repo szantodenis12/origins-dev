@@ -280,16 +280,9 @@ export async function buildApplePass(
     if (data) files[destName] = data;
   }
 
-  // Add clean strip images (texture background with embossed leaves)
-  const stripMap: Record<string, string> = {
-    [`${tier.strip}.png`]: "strip.png",
-    [`${tier.strip}@2x.png`]: "strip@2x.png",
-    [`${tier.strip}@3x.png`]: "strip@3x.png",
-  };
-  for (const [srcName, destName] of Object.entries(stripMap)) {
-    const data = readAsset(srcName);
-    if (data) files[destName] = data;
-  }
+  // No strip image — Apple Wallet auto-overrides foregroundColor when a strip
+  // is present and picks white text. Without a strip, backgroundColor is used
+  // as background and foregroundColor/labelColor are respected exactly.
 
   // Build manifest.json (SHA1 hash of every file)
   const manifest: Record<string, string> = {};
