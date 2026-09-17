@@ -14,6 +14,7 @@ interface ApplePassColors {
   label: string;
   logo: string;
   strip: string;
+  logoText: string;
 }
 
 const TIER_CONFIGS: Record<string, ApplePassColors> = {
@@ -23,6 +24,7 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     label: "rgb(92, 107, 74)",
     logo: "logo-forest",
     strip: "strip-circle",
+    logoText: "Circle",
   },
   gold: {
     background: "rgb(190, 156, 84)",
@@ -30,6 +32,7 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     label: "rgb(110, 88, 38)",
     logo: "logo-forest",
     strip: "strip-gold",
+    logoText: "Gold Circle",
   },
   student: {
     background: "rgb(26, 27, 25)",
@@ -37,6 +40,7 @@ const TIER_CONFIGS: Record<string, ApplePassColors> = {
     label: "rgb(143, 154, 112)",
     logo: "logo-pale",
     strip: "strip-student",
+    logoText: "Student Circle",
   },
 };
 
@@ -294,9 +298,10 @@ export async function buildApplePass(
     passTypeIdentifier: passTypeId,
     teamIdentifier: teamId,
     organizationName: "Origins Cafe",
-    description: "Origins Coffee Loyalty",
+    description: `Origins ${tier.logoText}`,
     serialNumber: member.passSerial,
-    webServiceURL: `${appUrl}/api/v1/passes/v1/`,
+    logoText: tier.logoText,
+    webServiceURL: `${appUrl}/api/v1/passes`,
     authenticationToken: crypto
       .createHash("sha256")
       .update(`${member.id}-${member.passSerial}-secret`)

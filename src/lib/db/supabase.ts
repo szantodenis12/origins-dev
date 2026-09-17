@@ -47,6 +47,7 @@ import {
 import { normalizePhone } from "../phone.ts";
 import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
 import { supabaseClient } from "./supabase-client.ts";
+import { notifyPassUpdated } from "../wallet/apns.ts";
 
 function isValidUuid(id: string | null | undefined): boolean {
   if (!id) return false;
@@ -289,6 +290,8 @@ export function createSupabaseDb(): Db {
           .eq("id", input.memberId);
       }
 
+      notifyPassUpdated(member.passSerial).catch(() => {});
+
       return {
         status: "added",
         event: {
@@ -331,6 +334,8 @@ export function createSupabaseDb(): Db {
         .single();
 
       if (error || !data) throw new Error(`Redeem failed: ${error?.message}`);
+
+      notifyPassUpdated(member.passSerial).catch(() => {});
 
       return {
         status: "redeemed",

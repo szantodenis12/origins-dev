@@ -27,6 +27,7 @@ import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
 // adapter), but a harmless one: CONSENT_VERSION is only read inside getStats,
 // long after both modules finished evaluating.
 import { CONSENT_VERSION } from "./index.ts";
+import { notifyPassUpdated } from "../wallet/apns.ts";
 import type { Category, Location } from "../types";
 import type {
   AddStampInput,
@@ -611,6 +612,8 @@ export function createMemoryDb(): Db {
 
       if (kind === "review_bonus") member.reviewBonusGiven = true;
 
+      notifyPassUpdated(member.passSerial).catch(() => {});
+
       return { status: "added", event };
     },
 
@@ -655,6 +658,8 @@ export function createMemoryDb(): Db {
           : {}),
       };
       store.redemptions.push(redemption);
+
+      notifyPassUpdated(member.passSerial).catch(() => {});
 
       return { status: "redeemed", redemption };
     },
