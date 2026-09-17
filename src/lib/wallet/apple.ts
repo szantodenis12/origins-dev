@@ -336,7 +336,7 @@ export async function buildApplePass(
           key: "stamps",
           label: "ȘTAMPILE",
           value: `${stampsCount} / ${totalStamps}`,
-          changeMessage: "Ai primit o ștampilă nouă la Origins! Ștampile: %@",
+          changeMessage: "Ai primit o stampila noua la Origins! Stampile: %@",
         },
       ],
       // If strip rendered OK, name is baked into the strip image.
@@ -354,7 +354,7 @@ export async function buildApplePass(
             stampsCount >= totalStamps
               ? "Card complet! Cafea gratuită"
               : `Mai ai ${totalStamps - stampsCount} ștampile`,
-          changeMessage: "Recompensă Origins: %@",
+          changeMessage: "Recompensa Origins: %@",
         },
       ],
       auxiliaryFields: [
