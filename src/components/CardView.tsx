@@ -2,8 +2,8 @@
 
 import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, CreditCard, Loader2, TriangleAlert } from "lucide-react";
-import { signupAction, type SignupState } from "@/app/card/actions";
+import { ChevronDown, CreditCard, Loader2, Search, TriangleAlert } from "lucide-react";
+import { recoverCardAction, signupAction, type RecoverState, type SignupState } from "@/app/card/actions";
 import { ageOn, PARENTAL_CONSENT_AGE } from "@/lib/age";
 import { tx, ui, useLang } from "@/lib/i18n";
 import type { I18nText, Lang } from "@/lib/types";
@@ -121,6 +121,12 @@ export default function CardView({
     { error: null },
   );
 
+  const [showRecover, setShowRecover] = useState(false);
+  const [recoverState, recoverAction, recoverPending] = useActionState<
+    RecoverState,
+    FormData
+  >(recoverCardAction, { error: null });
+
   // Controlled on purpose: React 19 resets uncontrolled fields after a form
   // action, which would wipe the member's input on a validation error.
   const [name, setName] = useState("");
@@ -196,8 +202,80 @@ export default function CardView({
         )}
       </section>
 
-      <form action={formAction} className="flex flex-col gap-4 px-5 pt-2 pb-2">
-        <input type="hidden" name="lang" value={lang} />
+      {/* Recover Card Banner / Form */}
+      <div className="mx-5 my-2.5 rounded-card border border-sage/40 bg-cream/60 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] font-semibold text-ink/80">
+            {showRecover ? "Creezi un card nou?" : "Ai deja un card creat?"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowRecover(!showRecover)}
+            className="text-[12.5px] font-bold text-sage-deep underline underline-offset-2"
+          >
+            {showRecover ? "Formular înregistrare" : "Găsește cardul meu"}
+          </button>
+        </div>
+
+        {showRecover && (
+          <form action={recoverAction} className="mt-3.5 flex flex-col gap-3">
+            <div>
+              <label className={labelClass} htmlFor="recover-phone">
+                Introdu numărul de telefon cu care te-ai înregistrat
+              </label>
+              <input
+                id="recover-phone"
+                name="phone"
+                type="tel"
+                required
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="07xx xxx xxx"
+                className={`mt-1.5 ${fieldClass}`}
+              />
+            </div>
+
+            {recoverState.error === "phone" && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-card bg-paper p-3 text-[12.5px] font-semibold text-ink border border-line"
+              >
+                <TriangleAlert className="mt-px size-4 shrink-0 text-sage-deep" />
+                <span>Numărul de telefon nu este valid.</span>
+              </div>
+            )}
+
+            {recoverState.error === "not_found" && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-card bg-paper p-3 text-[12.5px] font-semibold text-ink border border-line"
+              >
+                <TriangleAlert className="mt-px size-4 shrink-0 text-sage-deep" />
+                <span>
+                  Nu am găsit niciun card cu acest număr. Completează formularul de mai jos pentru a crea unul nou.
+                </span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={recoverPending}
+              className="flex w-full items-center justify-center gap-2 rounded-btn bg-ink p-3 text-[14px] font-semibold text-paper disabled:opacity-45"
+            >
+              {recoverPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Search className="size-4" />
+              )}
+              {recoverPending ? "Se caută..." : "Deschide cardul meu"}
+            </button>
+          </form>
+        )}
+      </div>
+
+      {!showRecover && (
+        <form action={formAction} className="flex flex-col gap-4 px-5 pt-2 pb-2">
+          <input type="hidden" name="lang" value={lang} />
 
         <div>
           <label className={labelClass} htmlFor="card-name">
@@ -365,6 +443,7 @@ export default function CardView({
           {pending ? tx(ui.cardFormPending, lang) : tx(ui.cardFormSubmit, lang)}
         </button>
       </form>
+      )}
 
       <SiteFooter />
     </PhoneFrame>

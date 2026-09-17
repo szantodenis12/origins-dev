@@ -94,9 +94,35 @@ export async function signupAction(
     consentVersion: CONSENT_VERSION,
   });
 
-  // Spec §6.4: no SMS resend — the barista opens the existing card in admin.
-  if (result.status === "phone_exists") return { error: "phone_exists" };
+  // Spec §6.4: If phone exists, redirect straight to their existing card
+  if (result.status === "phone_exists") {
+    const existing = await getDb().findMemberByPhone(phone);
+    if (existing) {
+      redirect(`/card/${existing.id}`);
+    }
+    return { error: "phone_exists" };
+  }
   if (result.status === "invalid_phone") return { error: "phone" };
 
   redirect(`/card/${result.member.id}`);
+}
+
+export type RecoverError = "phone" | "not_found";
+
+export interface RecoverState {
+  error: RecoverError | null;
+}
+
+export async function recoverCardAction(
+  _prev: RecoverState,
+  formData: FormData,
+): Promise<RecoverState> {
+  const phoneRaw = String(formData.get("phone") ?? "");
+  const phone = normalizePhone(phoneRaw);
+  if (!phone) return { error: "phone" };
+
+  const member = await getDb().findMemberByPhone(phone);
+  if (!member) return { error: "not_found" };
+
+  redirect(`/card/${member.id}`);
 }
