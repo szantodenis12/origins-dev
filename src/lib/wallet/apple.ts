@@ -74,16 +74,14 @@ const ORIGINS_LOCATIONS = [
 /* ---------- load font helper ---------- */
 
 async function loadFont(walletDir: string): Promise<ArrayBuffer> {
-  const fontPath = path.join(walletDir, "Cormorant.ttf");
+  const fontPath = path.join(walletDir, "Georgia.ttf");
   if (fs.existsSync(fontPath)) {
     const buf = fs.readFileSync(fontPath);
-    // Return a proper ArrayBuffer (avoid Node Buffer pool aliasing)
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   }
-  // Fallback: fetch from public URL (Vercel CDN)
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL || "https://app.originscafe.ro";
-  const res = await fetch(`${appUrl}/wallet/apple/Cormorant.ttf`);
+  const res = await fetch(`${appUrl}/wallet/apple/Georgia.ttf`);
   return res.arrayBuffer();
 }
 
@@ -98,43 +96,75 @@ async function renderStripWithName(
     const tier = TIER_CONFIGS[tierKey];
     const fontData = await loadFont(walletDir);
 
-    // Load base texture strip image as data-URI background
     const stripPath = path.join(walletDir, `${tier.strip}@3x.png`);
-    let bgCss: Record<string, string>;
+    let imgDataUri: string | null = null;
     if (fs.existsSync(stripPath)) {
       const base64 = fs.readFileSync(stripPath).toString("base64");
-      bgCss = {
-        backgroundImage: `url(data:image/png;base64,${base64})`,
-        backgroundSize: "1125px 369px",
-      };
-    } else {
-      bgCss = { backgroundColor: tier.background };
+      imgDataUri = `data:image/png;base64,${base64}`;
     }
 
-    // Build the VDOM element (Satori accepts React-like objects)
-    const element = {
+    const children: any[] = [];
+
+    // Add background image if available
+    if (imgDataUri) {
+      children.push({
+        type: "img",
+        props: {
+          src: imgDataUri,
+          width: 1125,
+          height: 369,
+          style: {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+          },
+        },
+      });
+    }
+
+    // Centered member name text overlay
+    children.push({
       type: "div",
       props: {
         style: {
           display: "flex",
+          position: "absolute",
+          top: 0,
+          left: 0,
           width: "100%",
           height: "100%",
           alignItems: "center",
           justifyContent: "center",
-          ...bgCss,
         },
         children: {
           type: "span",
           props: {
             style: {
-              fontFamily: "Cormorant",
-              fontSize: 54,
+              fontFamily: "Georgia",
+              fontSize: 60,
               color: tier.foreground,
               letterSpacing: "0.06em",
+              fontWeight: 400,
             },
             children: memberName,
           },
         },
+      },
+    });
+
+    const element = {
+      type: "div",
+      props: {
+        style: {
+          display: "flex",
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          backgroundColor: tier.background,
+        },
+        children,
       },
     };
 
@@ -143,7 +173,7 @@ async function renderStripWithName(
       height: 369,
       fonts: [
         {
-          name: "Cormorant",
+          name: "Georgia",
           data: fontData,
           style: "normal" as const,
           weight: 400 as const,
@@ -255,7 +285,7 @@ export async function buildApplePass(
     year: "numeric",
   });
 
-  // Try rendering strip image with member name in Cormorant font
+  // Try rendering strip image with member name in Georgia font
   const stripPng = await renderStripWithName(member.name, tierKey);
   const hasStrip = stripPng !== null;
 
@@ -286,8 +316,8 @@ export async function buildApplePass(
           value: `${stampsCount} / ${totalStamps}`,
         },
       ],
-      // If strip rendered OK, name is baked into the image — no primaryFields.
-      // If strip failed, fall back to native primaryFields (system font).
+      // If strip rendered OK, name is baked into the strip image.
+      // If strip failed, fall back to native primaryFields.
       ...(hasStrip
         ? {}
         : {
@@ -377,12 +407,10 @@ export async function buildApplePass(
 
   // Add strip images
   if (hasStrip) {
-    // Dynamically rendered strip with member name in Cormorant font
     files["strip.png"] = stripPng;
     files["strip@2x.png"] = stripPng;
     files["strip@3x.png"] = stripPng;
   } else {
-    // Fallback: static clean strips (no name)
     const stripMap: Record<string, string> = {
       [`${tier.strip}.png`]: "strip.png",
       [`${tier.strip}@2x.png`]: "strip@2x.png",
