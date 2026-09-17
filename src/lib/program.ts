@@ -410,5 +410,8 @@ export function sanitizeLoyaltyConfig(raw: unknown): LoyaltyConfig {
       birthday_drink: rewardText(names.birthday_drink, d.names.birthday_drink),
     },
     updatedAt: typeof input.updatedAt === "string" ? input.updatedAt : null,
+    ...((raw && typeof raw === "object" && "_passRegistrations" in raw)
+      ? { _passRegistrations: (raw as any)._passRegistrations }
+      : {}),
   };
 }
