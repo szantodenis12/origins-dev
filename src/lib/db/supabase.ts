@@ -545,13 +545,18 @@ export function createSupabaseDb(): Db {
     },
 
     async createStaff(input: NewStaffInput): Promise<CreateStaffResult> {
+      const name = input.name.trim();
+      if (!name || name.length > 60) return { status: "invalid_name" };
+
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       const pinHash = hashStaffPin(pin);
+      const newId = crypto.randomUUID();
 
       const { data, error } = await client
         .from("staff_users")
         .insert({
-          name: input.name.trim(),
+          id: newId,
+          name,
           location_slug: input.locationSlug,
           role: input.role,
           pin_hash: pinHash,
@@ -561,7 +566,10 @@ export function createSupabaseDb(): Db {
         .select()
         .single();
 
-      if (error || !data) return { status: "invalid_name" };
+      if (error || !data) {
+        console.error("[supabase] createStaff insert error:", error);
+        return { status: "invalid_name" };
+      }
 
       return {
         status: "created",
