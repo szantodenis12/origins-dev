@@ -56,7 +56,9 @@ insert into locations (slug, name, address_ro, address_hu, address_en, hours_ro,
   ('era', 'ERA Shopping Park', 'Calea Aradului 62, Oradea', 'Calea Aradului 62, Nagyvárad', null, 'L-D 09:00 - 21:00', 'H-V 09:00 - 21:00', 'Mon-Sun 09:00 - 21:00', false, null, null, null, '/photos/loc-era.webp', '/photos/hero-era-ddb7862a.webp', 'ChIJpVTBgEVHRkcRnbZALZqcg6c', 4.9, 73, 'https://search.google.com/local/writereview?placeid=ChIJpVTBgEVHRkcRnbZALZqcg6c', null, true),
   ('rogerius', 'Rogerius', 'Calea Corneliu Coposu 33, Oradea', 'Calea Corneliu Coposu 33, Nagyvárad', null, 'L-V 07:00 - 21:00', 'H-P 07:00 - 21:00', 'Mon-Fri 07:00 - 21:00', false, null, null, null, '/photos/loc-rogerius-fdd7caf3.webp', '/photos/hero-rogerius-d1859c6f.webp', 'ChIJr3BDSwdJRkcRSsy_H07WvC4', 4.8, 127, 'https://search.google.com/local/writereview?placeid=ChIJr3BDSwdJRkcRSsy_H07WvC4', null, true),
   ('oraselul', 'Orășelul Copiilor', 'Calea Corneliu Coposu 8, Oradea', 'Calea Corneliu Coposu 8, Nagyvárad', null, null, null, null, false, 'Deschis martie - octombrie', 'Nyitva márciustól októberig', 'Open March - October', '/photos/loc-oraselul-9ff6b6e1.webp', '/photos/hero-oraselul-6f41716b.webp', null, null, null, null, null, false),
-  ('gara', 'Gara Mare', 'Strada Muzeului 2, Oradea', 'Strada Muzeului 2, Nagyvárad', null, null, null, null, false, null, null, null, '/photos/loc-gara.webp', '/photos/hero-gara-f8aee5d8.webp', null, null, null, null, null, true),
+  ('gara', 'Palatul Copiilor', 'Strada Muzeului 2, Oradea', 'Strada Muzeului 2, Nagyvárad', null, null, null, 
+             null, false, null, null, null, '/photos/loc-gara.webp', '/photos/hero-gara-f8aee5d8.webp', null, null, 
+             null, null, null, true),
   ('lazar', 'Aurel Lazăr', 'Strada Aurel Lazăr 21, Oradea', 'Strada Aurel Lazăr 21, Nagyvárad', null, null, null, null, true, null, null, null, null, null, null, null, null, null, null, null)
 on conflict (slug) do update set
   name = excluded.name,

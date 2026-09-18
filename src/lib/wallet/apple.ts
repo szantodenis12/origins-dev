@@ -66,7 +66,7 @@ const ORIGINS_LOCATIONS = [
   {
     latitude: 47.0655,
     longitude: 21.9361,
-    relevantText: "Ești la Origins Gara Mare. Scanează cardul la casă!",
+    relevantText: "Ești la Origins Palatul Copiilor. Scanează cardul la casă!",
   },
   {
     latitude: 47.056,

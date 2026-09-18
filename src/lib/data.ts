@@ -32,23 +32,21 @@ export const locations: Location[] = [
     heroPhoto: "/photos/hero-era-ddb7862a.webp",
   },
   {
-    slug: "rogerius",
-    name: "Rogerius",
-    address: { ro: "Calea Corneliu Coposu 33, Oradea", hu: "Calea Corneliu Coposu 33, Nagyvárad" },
-    hours: { ro: "L-V 07:00 - 21:00", hu: "H-P 07:00 - 21:00", en: "Mon-Fri 07:00 - 21:00" }, // weekend: to confirm
+    slug: "gara",
+    name: "Palatul Copiilor",
+    address: { ro: "Strada Muzeului 2, Oradea", hu: "Strada Muzeului 2, Nagyvárad" },
+    hours: null, // to confirm
     comingSoon: false,
     seasonalNote: null,
-    // place id derived from the Maps link on originscafe.ro (ftid 0x474649074b4370af:0x2ebcd64e1fbfcc4a)
-    googlePlaceId: "ChIJr3BDSwdJRkcRSsy_H07WvC4",
-    googleRating: 4.8,
-    googleReviewCount: 127,
-    reviewUrl:
-      "https://search.google.com/local/writereview?placeid=ChIJr3BDSwdJRkcRSsy_H07WvC4",
+    googlePlaceId: null,
+    googleRating: null,
+    googleReviewCount: null,
+    reviewUrl: null,
     woltUrl: null,
-    // Confirmed by the printed Rogerius card (cocktails, beer, spirits).
+    // Client (Roland), 11.08.2026: Palatul Copiilor serves alcohol too.
     servesAlcohol: true,
-    photo: "/photos/loc-rogerius-fdd7caf3.webp",
-    heroPhoto: "/photos/hero-rogerius-d1859c6f.webp",
+    photo: "/photos/loc-gara.webp",
+    heroPhoto: "/photos/hero-gara-f8aee5d8.webp",
   },
   {
     slug: "oraselul",
@@ -77,21 +75,23 @@ export const locations: Location[] = [
     heroPhoto: "/photos/hero-oraselul-6f41716b.webp",
   },
   {
-    slug: "gara",
-    name: "Gara Mare",
-    address: { ro: "Strada Muzeului 2, Oradea", hu: "Strada Muzeului 2, Nagyvárad" },
-    hours: null, // to confirm
+    slug: "rogerius",
+    name: "Rogerius",
+    address: { ro: "Calea Corneliu Coposu 33, Oradea", hu: "Calea Corneliu Coposu 33, Nagyvárad" },
+    hours: { ro: "L-V 07:00 - 21:00", hu: "H-P 07:00 - 21:00", en: "Mon-Fri 07:00 - 21:00" }, // weekend: to confirm
     comingSoon: false,
     seasonalNote: null,
-    googlePlaceId: null,
-    googleRating: null,
-    googleReviewCount: null,
-    reviewUrl: null,
+    // place id derived from the Maps link on originscafe.ro (ftid 0x474649074b4370af:0x2ebcd64e1fbfcc4a)
+    googlePlaceId: "ChIJr3BDSwdJRkcRSsy_H07WvC4",
+    googleRating: 4.8,
+    googleReviewCount: 127,
+    reviewUrl:
+      "https://search.google.com/local/writereview?placeid=ChIJr3BDSwdJRkcRSsy_H07WvC4",
     woltUrl: null,
-    // Client (Roland), 11.08.2026: Gara Mare serves alcohol too.
+    // Confirmed by the printed Rogerius card (cocktails, beer, spirits).
     servesAlcohol: true,
-    photo: "/photos/loc-gara.webp",
-    heroPhoto: "/photos/hero-gara-f8aee5d8.webp",
+    photo: "/photos/loc-rogerius-fdd7caf3.webp",
+    heroPhoto: "/photos/hero-rogerius-d1859c6f.webp",
   },
   {
     slug: "lazar",

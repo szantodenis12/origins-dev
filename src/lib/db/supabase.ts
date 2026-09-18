@@ -624,9 +624,15 @@ export function createSupabaseDb(): Db {
 
     /* -------------------------------------------------------- menu --- */
     async listLocations(): Promise<Location[]> {
-      const { data, error } = await client.from("locations").select("*").order("slug");
+      const { data, error } = await client.from("locations").select("*");
       if (error || !data) return [];
-      return data.map(mapDbLocation);
+      const LOCATION_SLUG_ORDER = ["era", "gara", "oraselul", "rogerius", "lazar"];
+      const locations = data.map(mapDbLocation);
+      return locations.sort((a, b) => {
+        const ia = LOCATION_SLUG_ORDER.indexOf(a.slug);
+        const ib = LOCATION_SLUG_ORDER.indexOf(b.slug);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      });
     },
 
     async getLocationBySlug(slug: string): Promise<Location | null> {
@@ -1085,9 +1091,10 @@ function mapDbStaff(row: any): StaffUser {
 }
 
 function mapDbLocation(row: any): Location {
+  const name = row.slug === "gara" && row.name === "Gara Mare" ? "Palatul Copiilor" : row.name;
   return {
     slug: row.slug,
-    name: row.name,
+    name,
     address: {
       ro: row.address_ro,
       hu: row.address_hu,
