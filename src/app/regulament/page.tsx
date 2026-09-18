@@ -13,6 +13,7 @@ import {
   midRewardRule,
   rewardValueCapRule,
   stampWindowRule,
+  toGoDisclaimer,
 } from "@/lib/program-copy";
 
 /**
@@ -45,6 +46,7 @@ const sections = (config: LoyaltyConfig): LegalSection[] => [
         hu: "Az Origins Circle a nagyváradi Origins Coffee & Drinks kávézók hűségprogramja, amelyet a BISTRO ARABICA S.R.L. működtet. A kártya ingyenes, és a telefonodban él: egy weboldalon kapod meg, hamarosan pedig Apple Walletben vagy Google Walletben is.",
         en: "Origins Circle is the loyalty program of the Origins Coffee & Drinks coffee shops in Oradea, run by BISTRO ARABICA S.R.L. The card is free and lives in your phone: you get it as a web page, and soon in Apple Wallet or Google Wallet too.",
       },
+      toGoDisclaimer(),
     ],
   },
   {

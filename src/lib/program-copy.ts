@@ -76,6 +76,21 @@ export function formatLei(value: number): string {
   return `${grouped},${fraction}`;
 }
 
+/* --------------------------------------------------------- to-go note --- */
+
+/** The takeaway-only disclaimer that opens the program description. */
+export function toGoDisclaimer(): RewardText {
+  return build((lang) => {
+    if (lang === "hu") {
+      return "A hűségprogram kizárólag az elvitelre vásárolt kávékra érvényes. A helyben fogyasztott kávék nem tartoznak bele. A jutalmak is csak elvitelre járnak.";
+    }
+    if (lang === "en") {
+      return "The loyalty program is valid exclusively for takeaway coffees. Coffees consumed on-site are not included. Rewards are also takeaway only.";
+    }
+    return "Programul de fidelitate este valabil exclusiv pentru cafelele la pachet (to go). Cafelele consumate în locație nu sunt incluse. Și recompensele se oferă doar la pachet.";
+  });
+}
+
 /* ------------------------------------------------------------- rewards --- */
 
 /** "La 5 ștampile: o cafea din partea casei." + what happens to the card. */
@@ -92,7 +107,7 @@ export function freeDrinkRule(config: LoyaltyConfig): RewardText {
     if (lang === "en") {
       return `At ${n} stamps: ${name}. Once you claim it, the card restarts from zero.`;
     }
-    return `La ${n} ștampile: ${name}. Cardul se reia de la zero după ce ridici recompensa.`;
+    return `La ${n} ștampile, primești ${name}. După ce ridici recompensa, începi un nou card.`;
   });
 }
 
@@ -232,7 +247,7 @@ export function doubleStampRule(config: LoyaltyConfig): RewardText | null {
       return `On ${day.en} between ${from} and ${to}, the stamp counts double.`;
     }
     const capitalized = day.ro.charAt(0).toUpperCase() + day.ro.slice(1);
-    return `${capitalized}, între ${from} și ${to}, ștampila numără de două ori.`;
+    return `${capitalized}, între ${from} și ${to}, primești ștampilă dublă.`;
   });
 }
 
@@ -246,7 +261,7 @@ export function stampWindowRule(config: LoyaltyConfig): RewardText {
     if (lang === "en") {
       return `At most one stamp per member, per coffee shop, every ${h} hours. A visit to another Origins the same day earns its own stamp.`;
     }
-    return `Se acordă cel mult o ștampilă de membru, pe cafenea, la fiecare ${h} ore. O vizită în altă cafenea Origins în aceeași zi primește ștampila ei.`;
+    return `Poți primi o ștampilă la fiecare ${h} ore în aceeași cafenea Origins, cu excepția intervalului de ștampilă dublă. Dacă vizitezi o altă cafenea Origins în aceeași zi, poți primi o ștampilă și acolo.`;
   });
 }
 
@@ -262,7 +277,7 @@ export function goldQualifyRule(config: LoyaltyConfig): RewardText {
     if (lang === "en") {
       return `Gold activates automatically after ${cards} full cards, meaning after you claim the ${n}-stamp reward ${cards} times.`;
     }
-    return `Statutul Gold se activează automat după ${cards} carduri complete, adică după ce ridici de ${cards} ori recompensa de la ${n} ștampile.`;
+    return `Devii automat membru Gold după ${cards} carduri completate și ${cards} recompense ridicate.`;
   });
 }
 
@@ -278,7 +293,7 @@ export function goldCardRule(config: LoyaltyConfig): RewardText | null {
     if (lang === "en") {
       return `With Gold the card is ${g} stamps instead of ${n}, so the free drink comes sooner.`;
     }
-    return `Cu Gold, cardul are ${g} ștampile în loc de ${n}, deci băutura din partea casei vine mai repede.`;
+    return `Cu Gold, primești o cafea din partea casei la fiecare ${g} ștampile, în loc de ${n}.`;
   });
 }
 
@@ -300,7 +315,7 @@ export function goldKeepRule(config: LoyaltyConfig): RewardText {
     }
     const again =
       back === 1 ? "încă un card complet" : `încă ${back} carduri complete`;
-    return `Ca să păstrezi Gold, ai nevoie de cel puțin o vizită în fiecare interval de ${days} zile. Dacă statutul expiră, îl recâștigi după ${again}.`;
+    return `Îți păstrezi statutul Gold cu cel puțin o vizită la fiecare ${days} zile. Dacă acesta expiră, îl poți recâștiga după ce completezi încă un card.`;
   });
 }
 
@@ -330,8 +345,8 @@ export function goldPerksRule(config: LoyaltyConfig): RewardText | null {
     }
     const list = single
       ? names[0]
-      : `întâi ${names[0]}, apoi ${names.slice(1).join(", apoi ")}`;
+      : `${names[0]} în prima perioadă, ${names.slice(1).join(", apoi ")} în următoarea`;
     const toGo = perks.toGoOnly ? " Doar la pachet." : "";
-    return `${every}, Gold primește ceva în plus: ${list}. Se poate lua o singură dată în fiecare perioadă.${toGo}`;
+    return `Ca membru Gold, ai și un beneficiu suplimentar la fiecare ${perks.periodDays} zile: ${list}. Beneficiile alternează și pot fi folosite o singură dată în perioada în care sunt disponibile.${toGo}`;
   });
 }

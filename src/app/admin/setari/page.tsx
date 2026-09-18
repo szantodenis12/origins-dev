@@ -17,6 +17,7 @@ import {
   midRewardRule,
   rewardValueCapRule,
   stampWindowRule,
+  toGoDisclaimer,
 } from "@/lib/program-copy";
 
 export const metadata: Metadata = {
@@ -38,6 +39,7 @@ export default async function SetariPage() {
   // The same generators the public pages use: the manager reads exactly what
   // the customer will read.
   const preview = [
+    toGoDisclaimer(),
     midRewardRule(config),
     freeDrinkRule(config),
     rewardValueCapRule(config),

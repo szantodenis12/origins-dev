@@ -395,7 +395,7 @@ export async function buildApplePass(
           key: "cum",
           label: "Cum funcționează",
           value:
-            "Arată codul la casă la fiecare comandă. La 5 ștampile, a șasea cafea e din partea casei.",
+            "Arată codul la casă la fiecare comandă. Doar la pachet (to go). La 5 ștampile, primești o cafea din partea casei.",
         },
         {
           key: "regulament",
