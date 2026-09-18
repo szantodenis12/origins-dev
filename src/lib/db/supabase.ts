@@ -548,7 +548,9 @@ export function createSupabaseDb(): Db {
       const name = input.name.trim();
       if (!name || name.length > 60) return { status: "invalid_name" };
 
-      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pin = input.pin && /^\d{4}$/.test(input.pin)
+        ? input.pin
+        : Math.floor(1000 + Math.random() * 9000).toString();
       const pinHash = hashStaffPin(pin);
       const newId = crypto.randomUUID();
 
@@ -591,6 +593,9 @@ export function createSupabaseDb(): Db {
     },
 
     async setStaffPin(id: string, pin?: string): Promise<SetStaffPinResult> {
+      if (pin && !/^\d{4}$/.test(pin)) {
+        return { status: "invalid_pin" };
+      }
       const newPin = pin ?? Math.floor(1000 + Math.random() * 9000).toString();
       const pinHash = hashStaffPin(newPin);
 

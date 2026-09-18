@@ -86,10 +86,16 @@ export async function createStaffAction(
   const rol = String(formData.get("rol") ?? "");
   if (rol !== "barista" && rol !== "manager") return fail(strings.badRole);
 
+  const pin = String(formData.get("pin") ?? "").trim();
+  if (pin.length > 0 && !/^\d{4}$/.test(pin)) {
+    return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
+  }
+
   const result = await getDb().createStaff({
     name: String(formData.get("nume") ?? ""),
     locationSlug: String(formData.get("cafenea") ?? ""),
     role: rol as StaffRole,
+    pin: pin.length > 0 ? pin : undefined,
   });
 
   if (result.status === "invalid_name") return fail(strings.nameMissing);
@@ -134,17 +140,21 @@ export async function updateStaffAction(
   }
 
   if (op === "cod") {
-    // Reset only: a generated code cannot be invalid and cannot collide.
-    const result = await db.setStaffPin(id);
+    const pin = String(formData.get("pin") ?? "").trim();
+    if (pin.length > 0 && !/^\d{4}$/.test(pin)) {
+      return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
+    }
+
+    const result = await db.setStaffPin(id, pin.length > 0 ? pin : undefined);
     if (result.status === "not_found") return fail(strings.personMissing);
-    // The button is hidden for shared accounts, but a direct POST is not.
     if (result.status === "shared_account") return fail(strings.sharedAccount);
+    if (result.status === "invalid_pin") return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
     if (result.status !== "set") return fail(strings.pinFailed);
     // The code itself never touches the Jurnal — only that it changed.
     await recordAdminAudit(auth.session, {
       action: "echipa.cod-nou",
       target: id,
-      summary: `A generat cod nou pentru ${result.staff.name}.`,
+      summary: `A generat/setat cod nou pentru ${result.staff.name}.`,
     });
     revalidateTeam();
     return { ok: true, text: strings.newPin(result.pin), op };

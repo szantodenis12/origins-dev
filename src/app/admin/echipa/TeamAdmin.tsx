@@ -180,6 +180,22 @@ function NewStaffForm({ groups }: { groups: TeamGroup[] }) {
         <option value="manager">{strings.roleManager}</option>
       </select>
 
+      <label className={`mt-3 ${labelClass}`} htmlFor={`${fieldId}-pin`}>
+        Cod de acces (PIN 4 cifre)
+      </label>
+      <input
+        id={`${fieldId}-pin`}
+        name="pin"
+        type="text"
+        inputMode="numeric"
+        maxLength={4}
+        autoComplete="off"
+        placeholder="ex: 1234"
+        required
+        className={`mt-1.5 ${fieldClass}`}
+      />
+      <p className={hintClass}>Codul de 4 cifre cu care persoana intră în tură.</p>
+
       <button
         type="submit"
         disabled={pending}
@@ -203,15 +219,15 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
   // last result (rename, code, activity) is the one shown under the row.
   const [state, formAction, pending] = useActionState(updateStaffAction, null);
   const [editing, setEditing] = useState(false);
+  const [editingPin, setEditingPin] = useState(false);
   const fieldId = useId();
 
-  // Close the inline rename only when a rename is what actually saved.
-  // Adjusted during render, not in an effect: each action result is a new
-  // object, so it is handled exactly once, in the pass that first shows it.
+  // Close the inline forms only when an operation actually saved.
   const [handled, setHandled] = useState<TeamSaveState>(null);
   if (state !== handled) {
     setHandled(state);
     if (state?.ok && state.op === "redenumeste") setEditing(false);
+    if (state?.ok && state.op === "cod") setEditingPin(false);
   }
 
   return (
@@ -282,10 +298,43 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
         </form>
       )}
 
+      {editingPin && (
+        <form action={formAction} className="mt-2.5 flex items-center gap-2">
+          <input type="hidden" name="staffId" value={member.id} />
+          <input type="hidden" name="op" value="cod" />
+          <input
+            id={`${fieldId}-pin`}
+            name="pin"
+            type="text"
+            inputMode="numeric"
+            maxLength={4}
+            autoComplete="off"
+            placeholder="Cod nou (4 cifre)"
+            required
+            aria-label="Cod nou"
+            className={fieldClass}
+          />
+          <button
+            type="submit"
+            disabled={pending}
+            className="flex h-[42px] shrink-0 items-center justify-center rounded-btn bg-ink px-3 text-[13px] font-semibold text-paper disabled:opacity-45"
+          >
+            {pending ? (
+              <Loader2 className="size-[16px] animate-spin" strokeWidth={2} />
+            ) : (
+              "Setează"
+            )}
+          </button>
+        </form>
+      )}
+
       <div className="mt-2.5 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setEditing((value) => !value)}
+          onClick={() => {
+            setEditing((value) => !value);
+            setEditingPin(false);
+          }}
           className={rowButton}
         >
           {editing ? (
@@ -296,21 +345,25 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
           {editing ? strings.cancel : strings.rename}
         </button>
 
-        {/* The shared account answers to the env code, which this screen
-            does not own: offering "Cod nou" there would leave the old code
-            working and read as a fix that did nothing. */}
         {!member.shared && (
-          <form action={formAction}>
-            <input type="hidden" name="staffId" value={member.id} />
-            <input type="hidden" name="op" value="cod" />
-            <button type="submit" disabled={pending} className={rowButton}>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingPin((val) => !val);
+              setEditing(false);
+            }}
+            className={rowButton}
+          >
+            {editingPin ? (
+              <X className="size-[13px] text-muted" strokeWidth={2} />
+            ) : (
               <KeyRound
                 className="size-[13px] text-sage-deep"
                 strokeWidth={2.25}
               />
-              {strings.newCode}
-            </button>
-          </form>
+            )}
+            {editingPin ? strings.cancel : "Resetare cod"}
+          </button>
         )}
 
         <form action={formAction}>

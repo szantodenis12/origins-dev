@@ -1060,9 +1060,12 @@ export function createMemoryDb(): Db {
       };
       store.staff.push(staff);
 
-      const pin = newStaffPin((candidate) =>
-        pinTakenAt(store, input.locationSlug, candidate),
-      );
+      const pin =
+        input.pin && /^\d{4}$/.test(input.pin)
+          ? input.pin
+          : newStaffPin((candidate) =>
+              pinTakenAt(store, input.locationSlug, candidate),
+            );
       store.staffPins.push({
         locationSlug: input.locationSlug,
         pinHash: hashStaffPin(pin),

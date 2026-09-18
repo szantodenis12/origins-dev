@@ -278,6 +278,7 @@ export interface NewStaffInput {
   name: string;
   locationSlug: string;
   role: StaffRole;
+  pin?: string;
 }
 
 export type CreateStaffResult =
