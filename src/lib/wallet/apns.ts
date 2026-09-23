@@ -142,9 +142,11 @@ class ApnsSession {
       const req = client.request({
         ":method": "POST",
         ":path": `/3/device/${pushToken}`,
-        // PassKit updates are their own push type; the topic is the pass type
-        // id, and priority 10 asks APNs to deliver without coalescing.
-        "apns-push-type": "pass",
+        // A pass update is a silent background push. "pass" reads like the
+        // obvious value and is not one APNs accepts — it answers 400
+        // InvalidPushType before it even looks at the token, which silently
+        // costs every notification. `probeApns` exists to catch exactly that.
+        "apns-push-type": "background",
         "apns-topic": topic,
         "apns-priority": "10",
         "apns-expiration": String(
@@ -269,6 +271,46 @@ async function deliver(registrations: PassRegistration[]): Promise<number> {
   production.close();
   sandbox[0]?.close();
   return sent;
+}
+
+/**
+ * Ask APNs whether it accepts our headers, without touching anyone's phone.
+ *
+ * The token is deliberately invalid, and APNs validates headers first: a
+ * header it dislikes comes back as InvalidPushType / BadTopic / a TLS error,
+ * while `BadDeviceToken` means everything except the token was accepted —
+ * which is the answer we want.
+ *
+ * This exists because a wrong `apns-push-type` fails every push identically
+ * and invisibly: registrations stay, no errors surface, cards just quietly
+ * stop updating.
+ */
+export async function probeApns(): Promise<{
+  ok: boolean;
+  status?: number;
+  reason?: string;
+  error?: string;
+  detail: string;
+}> {
+  if (!getTlsOptions()) {
+    return { ok: false, detail: "no certificate configured (APPLE_CERT_P12_BASE64)" };
+  }
+
+  const topic = process.env.APPLE_PASS_TYPE_ID || "pass.ro.originscafe.circle";
+  const session = new ApnsSession(PRODUCTION_HOST);
+  const outcome = await session.send("00".repeat(32), topic);
+  session.close();
+
+  const headersAccepted = outcome.reason === "BadDeviceToken";
+  return {
+    ok: headersAccepted,
+    status: outcome.status,
+    reason: outcome.reason,
+    error: outcome.error,
+    detail: headersAccepted
+      ? "headers and certificate accepted (BadDeviceToken is expected for the fake token)"
+      : `APNs rejected the request before the token: ${outcome.reason ?? outcome.error ?? "unknown"}`,
+  };
 }
 
 /**

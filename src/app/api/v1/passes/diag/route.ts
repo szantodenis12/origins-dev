@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listAllRegistrations } from "@/lib/wallet/pass-store";
+import { probeApns } from "@/lib/wallet/apns";
 import { getDb } from "@/lib/db";
 import { memberCard } from "@/lib/card";
 import {
@@ -44,6 +45,9 @@ export async function GET(request: Request) {
           updatedAt: r.updatedAt,
         })),
       },
+      // Whether APNs accepts our headers at all. Without it, a rejected
+      // header looks exactly like "nobody had their phone on".
+      apns: await probeApns(),
       google: {
         configured: googleWalletConfigured(),
         tokenOk: googleWalletConfigured()
