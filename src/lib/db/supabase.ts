@@ -47,7 +47,7 @@ import {
 import { normalizePhone } from "../phone.ts";
 import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
 import { supabaseClient } from "./supabase-client.ts";
-import { notifyPassUpdated } from "../wallet/apns.ts";
+import { notifyWalletsForMember } from "../wallet/notify.ts";
 
 function isValidUuid(id: string | null | undefined): boolean {
   if (!id) return false;
@@ -290,7 +290,7 @@ export function createSupabaseDb(): Db {
           .eq("id", input.memberId);
       }
 
-      await notifyPassUpdated(member.passSerial);
+      await notifyWalletsForMember(member);
 
       return {
         status: "added",
@@ -335,7 +335,7 @@ export function createSupabaseDb(): Db {
 
       if (error || !data) throw new Error(`Redeem failed: ${error?.message}`);
 
-      await notifyPassUpdated(member.passSerial);
+      await notifyWalletsForMember(member);
 
       return {
         status: "redeemed",
@@ -388,6 +388,13 @@ export function createSupabaseDb(): Db {
         .single();
 
       if (error || !data) return { status: "not_found" };
+
+      // Google keys the pass on the member, so this rewrites the barcode in
+      // place. Apple keys it on the serial: the old pass is a different pass,
+      // its web-service lookups now 404, and iOS retires it — that member has
+      // to add the card again, which is inherent to reissuing.
+      await notifyWalletsForMember(mapDbMember(data));
+
       return { status: "reissued", serial };
     },
 
@@ -400,7 +407,13 @@ export function createSupabaseDb(): Db {
         .single();
 
       if (error || !data) return { status: "not_found" };
-      return { status: "saved", member: mapDbMember(data) };
+
+      // A blocked card has to stop looking valid in the wallet too, and an
+      // unblocked one has to come back.
+      const member = mapDbMember(data);
+      await notifyWalletsForMember(member);
+
+      return { status: "saved", member };
     },
 
     async forgetMember(memberId: string): Promise<ForgetMemberResult> {

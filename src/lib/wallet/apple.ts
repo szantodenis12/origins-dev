@@ -92,16 +92,67 @@ async function loadFont(walletDir: string): Promise<ArrayBuffer> {
 
 /* ---------- render strip with member name ---------- */
 
-async function renderStripWithName(
+/**
+ * Apple picks one strip by screen scale. Shipping the @3x render under all
+ * three names made every pass 2.4 MB, of which 2.3 MB was the same image
+ * three times — and a pass that large is what fails to download over a weak
+ * connection after a push, leaving the member looking at a stale card.
+ */
+const STRIP_SIZES = [
+  { file: "strip.png", asset: "", width: 375, height: 123 },
+  { file: "strip@2x.png", asset: "@2x", width: 750, height: 246 },
+  { file: "strip@3x.png", asset: "@3x", width: 1125, height: 369 },
+] as const;
+
+type StripSize = (typeof STRIP_SIZES)[number];
+
+/**
+ * The strip depends only on the member's name and tier, never on the stamp
+ * count, so one render serves every later update. A push makes each of the
+ * member's devices fetch the pass at once; without this that is a full Satori
+ * run per device, per stamp.
+ */
+const stripCache = new Map<string, Record<string, Buffer>>();
+const STRIP_CACHE_LIMIT = 200;
+
+/**
+ * Squeeze a rendered strip down to a palette PNG.
+ *
+ * The artwork is one hue of textured gold, so 256 colours are plenty and the
+ * file drops to about a third with no visible banding. That matters because
+ * the whole pass is re-downloaded over the member's own connection every time
+ * a push lands, and a fat pass is one that quietly fails to arrive.
+ *
+ * sharp ships with Next for image optimisation, but this must not be the
+ * thing that breaks a build, so a missing or unhappy sharp just means the
+ * larger PNG goes out unchanged.
+ */
+async function optimizePng(png: Buffer): Promise<Buffer> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const out = await sharp(png)
+      .png({ palette: true, quality: 90, effort: 7 })
+      .toBuffer();
+    return out.length < png.length ? out : png;
+  } catch {
+    return png;
+  }
+}
+
+async function renderStripAt(
   memberName: string,
   tierKey: string,
+  size: StripSize,
 ): Promise<Buffer | null> {
   try {
     const walletDir = path.join(process.cwd(), "public", "wallet", "apple");
     const tier = TIER_CONFIGS[tierKey];
     const fontData = await loadFont(walletDir);
+    // The layout was drawn against the @3x canvas, so every measurement below
+    // is that design scaled down to whichever size we are rendering.
+    const scale = size.width / 1125;
 
-    const stripPath = path.join(walletDir, `${tier.strip}@3x.png`);
+    const stripPath = path.join(walletDir, `${tier.strip}${size.asset}.png`);
     let imgDataUri: string | null = null;
     if (fs.existsSync(stripPath)) {
       const base64 = fs.readFileSync(stripPath).toString("base64");
@@ -116,8 +167,8 @@ async function renderStripWithName(
         type: "img",
         props: {
           src: imgDataUri,
-          width: 1125,
-          height: 369,
+          width: size.width,
+          height: size.height,
           style: {
             position: "absolute",
             top: 0,
@@ -143,7 +194,7 @@ async function renderStripWithName(
           height: "100%",
           alignItems: "center",
           justifyContent: "center",
-          gap: "10px",
+          gap: `${Math.max(2, Math.round(10 * scale))}px`,
         },
         children: [
           {
@@ -151,7 +202,7 @@ async function renderStripWithName(
             props: {
               style: {
                 fontFamily: "Georgia",
-                fontSize: 52,
+                fontSize: Math.round(52 * scale),
                 color: tier.foreground,
                 letterSpacing: "0.04em",
                 fontWeight: 400,
@@ -164,7 +215,7 @@ async function renderStripWithName(
             props: {
               style: {
                 fontFamily: "Georgia",
-                fontSize: 20,
+                fontSize: Math.max(7, Math.round(20 * scale)),
                 color: tier.label,
                 letterSpacing: "0.2em",
                 textTransform: "uppercase",
@@ -191,8 +242,8 @@ async function renderStripWithName(
     };
 
     const response = new ImageResponse(element as React.ReactElement, {
-      width: 1125,
-      height: 369,
+      width: size.width,
+      height: size.height,
       fonts: [
         {
           name: "Georgia",
@@ -203,11 +254,41 @@ async function renderStripWithName(
       ],
     });
 
-    return Buffer.from(await response.arrayBuffer());
+    return await optimizePng(Buffer.from(await response.arrayBuffer()));
   } catch (err) {
     console.error("[apple-wallet] strip render error:", err);
     return null;
   }
+}
+
+/**
+ * All three strips for one member, or null when any of them fails — a pass
+ * with a partial set would show the name on some phones and not others, so
+ * the caller falls back to the plain artwork instead.
+ */
+async function renderStrips(
+  memberName: string,
+  tierKey: string,
+): Promise<Record<string, Buffer> | null> {
+  const cacheKey = `${tierKey}|${memberName}`;
+  const cached = stripCache.get(cacheKey);
+  if (cached) return cached;
+
+  const rendered = await Promise.all(
+    STRIP_SIZES.map((size) => renderStripAt(memberName, tierKey, size)),
+  );
+  if (rendered.some((buf) => buf === null)) return null;
+
+  const strips: Record<string, Buffer> = {};
+  STRIP_SIZES.forEach((size, i) => {
+    strips[size.file] = rendered[i]!;
+  });
+
+  if (stripCache.size >= STRIP_CACHE_LIMIT) {
+    stripCache.delete(stripCache.keys().next().value!);
+  }
+  stripCache.set(cacheKey, strips);
+  return strips;
 }
 
 /* ---------- PKCS#7 signing ---------- */
@@ -326,9 +407,9 @@ export async function buildApplePass(
     }
   } catch {}
 
-  // Try rendering strip image with member name in Georgia font
-  const stripPng = await renderStripWithName(member.name, tierKey);
-  const hasStrip = stripPng !== null;
+  // Try rendering strip images with member name in Georgia font
+  const strips = await renderStrips(member.name, tierKey);
+  const hasStrip = strips !== null;
 
   const passJson: Record<string, any> = {
     formatVersion: 1,
@@ -458,20 +539,13 @@ export async function buildApplePass(
     if (data) files[destName] = data;
   }
 
-  // Add strip images
-  if (hasStrip) {
-    files["strip.png"] = stripPng;
-    files["strip@2x.png"] = stripPng;
-    files["strip@3x.png"] = stripPng;
+  // Add strip images, one per screen scale
+  if (strips) {
+    for (const [name, data] of Object.entries(strips)) files[name] = data;
   } else {
-    const stripMap: Record<string, string> = {
-      [`${tier.strip}.png`]: "strip.png",
-      [`${tier.strip}@2x.png`]: "strip@2x.png",
-      [`${tier.strip}@3x.png`]: "strip@3x.png",
-    };
-    for (const [srcName, destName] of Object.entries(stripMap)) {
-      const data = readAsset(srcName);
-      if (data) files[destName] = data;
+    for (const size of STRIP_SIZES) {
+      const data = readAsset(`${tier.strip}${size.asset}.png`);
+      if (data) files[size.file] = await optimizePng(Buffer.from(data));
     }
   }
 

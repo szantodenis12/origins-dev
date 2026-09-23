@@ -1,10 +1,11 @@
 "use server";
 
 import { getDb } from "@/lib/db";
-import type { PushCampaign } from "@/lib/db";
+import type { Member, PushCampaign } from "@/lib/db";
 import { readStaffSession } from "@/lib/admin/session";
 import { isOfferedSegment, MAX_MESSAGE } from "./shared";
 import { notifyAllPassesUpdated } from "@/lib/wallet/apns";
+import { addGoogleMessage } from "@/lib/wallet/google-api";
 
 /**
  * Push composer mutations. A server function is reachable by direct POST, so
@@ -58,23 +59,33 @@ export async function createCampaignAction(
     staffId: staff?.id ?? null,
   });
 
-  // Filter targeted members based on segment
+  // Reach both wallets. Apple only gets a nudge and re-reads the pass, which
+  // is where the campaign text is rendered; Google holds the pass, so the
+  // message has to be written into each object.
   try {
     const allMembers = await getDb().listMembers();
-    let targetSerials: string[] = [];
+    const inSegment = (m: Member): boolean => {
+      if (segment === "students") return m.isStudent;
+      if (segment === "ro" || segment === "hu") return m.lang === segment;
+      return true;
+    };
+    const targets = allMembers.filter((m) => inSegment(m) && !!m.passSerial);
 
-    if (segment === "all") {
-      targetSerials = allMembers.map((m) => m.passSerial).filter((s): s is string => !!s);
-    } else if (segment === "students") {
-      targetSerials = allMembers.filter((m) => m.isStudent).map((m) => m.passSerial).filter((s): s is string => !!s);
-    } else if (segment === "ro" || segment === "hu") {
-      targetSerials = allMembers.filter((m) => m.lang === segment).map((m) => m.passSerial).filter((s): s is string => !!s);
-    } else {
-      targetSerials = allMembers.map((m) => m.passSerial).filter((s): s is string => !!s);
+    await notifyAllPassesUpdated(targets.map((m) => m.passSerial));
+
+    // Sequential on purpose: Google counts a notification per pass per day,
+    // and a burst of parallel writes only spends that quota faster.
+    let sent = 0;
+    for (const member of targets) {
+      const text =
+        member.lang === "hu" && messageHu.length > 0 ? messageHu : messageRo;
+      const result = await addGoogleMessage(member, "Noutăți Origins", text);
+      if (result === "sent") sent++;
+      if (result === "skipped") break; // not configured; no point looping
     }
-
-    // Broadcast APNs push notification to all targeted passes
-    await notifyAllPassesUpdated(targetSerials);
+    if (sent > 0) {
+      console.log(`[push-action] Google message delivered to ${sent} pass(es)`);
+    }
   } catch (err) {
     console.error("[push-action] Error sending broadcast notifications:", err);
   }

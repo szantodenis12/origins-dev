@@ -601,9 +601,10 @@ export default function WebCard({
 
         {applePassUrl && (
           <div className="mt-4 flex flex-col gap-2.5 items-center">
+            {/* No `download`: it makes iOS Safari save the pass as a file
+                instead of opening PassKit, and the member never installs it. */}
             <a
               href={applePassUrl}
-              download
               className="inline-flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl bg-black text-white text-[13.5px] font-medium shadow-md hover:bg-neutral-800 transition-all w-full text-center"
             >
               <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">

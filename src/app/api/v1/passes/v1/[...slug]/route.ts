@@ -1,5 +1,7 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import type { Member } from "@/lib/db";
 import { memberCard } from "@/lib/card";
 import { buildApplePass } from "@/lib/wallet/apple";
 import {
@@ -7,6 +9,35 @@ import {
   unregisterDevicePass,
   getSerialNumbersForDevice,
 } from "@/lib/wallet/pass-store";
+
+/**
+ * Apple sends the pass's own authenticationToken on every web-service call.
+ * Checking it stops anyone from walking the serial space and pulling other
+ * members' passes.
+ *
+ * It only warns for now: passes already on people's phones carry a token this
+ * server generated, and turning a wrong guess about that into a hard 401
+ * would break updates for everyone at once. Watch the logs, and once no
+ * `token mismatch` lines appear, set PASSKIT_ENFORCE_AUTH=1 to reject.
+ */
+function expectedToken(member: Member): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${member.id}-${member.passSerial}-secret`)
+    .digest("hex")
+    .substring(0, 32);
+}
+
+function checkAuth(request: Request, member: Member, serial: string): boolean {
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.replace(/^ApplePass\s+/i, "").trim();
+  if (presented === expectedToken(member)) return true;
+
+  console.warn(
+    `[passkit-web-service] token mismatch for serial ${serial} (presented ${presented ? "a token" : "nothing"})`,
+  );
+  return process.env.PASSKIT_ENFORCE_AUTH !== "1";
+}
 
 export async function GET(
   request: Request,
@@ -28,6 +59,10 @@ export async function GET(
       return new NextResponse("Pass not found", { status: 404 });
     }
 
+    if (!checkAuth(request, member, serial)) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+
     const [config, stamps, redemptions] = await Promise.all([
       db.getLoyaltyConfig(),
       db.getMemberStamps(member.id),
@@ -47,7 +82,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/vnd.apple.pkpass",
-        "Content-Disposition": `attachment; filename="Origins-${serial}.pkpass"`,
+        "Content-Disposition": `inline; filename="Origins-${serial}.pkpass"`,
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Last-Modified": new Date().toUTCString(),
       },

@@ -33,7 +33,11 @@ export async function GET(
     status: 200,
     headers: {
       "Content-Type": "application/vnd.apple.pkpass",
-      "Content-Disposition": `attachment; filename="Origins-${serial}.pkpass"`,
+      // `inline` hands the pass straight to PassKit. As an attachment, iOS
+      // Safari files it away in Downloads instead of offering "Add to Apple
+      // Wallet", and in-app browsers drop it entirely — so the member never
+      // installs the pass and no device ever registers for updates.
+      "Content-Disposition": `inline; filename="Origins-${serial}.pkpass"`,
       "Cache-Control": "no-cache, no-store, must-revalidate",
     },
   });
