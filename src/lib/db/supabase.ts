@@ -44,6 +44,7 @@ import {
   type StampEvent,
   type StampKind,
 } from "../loyalty.ts";
+import { goldStatus } from "../gold.ts";
 import { normalizePhone } from "../phone.ts";
 import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
 import { supabaseClient } from "./supabase-client.ts";
@@ -1010,6 +1011,42 @@ export function createSupabaseDb(): Db {
         byReward.set(r.rewardId, (byReward.get(r.rewardId) ?? 0) + 1);
       }
 
+      /**
+       * Gold is derived, never stored, so counting it means replaying each
+       * member's own history through goldStatus — the same function the card
+       * and the barista panel use, so the number here cannot drift from what
+       * the staff see at the till.
+       *
+       * The events are already loaded for the totals above; grouping them by
+       * member costs one pass and no extra queries. Events detached from a
+       * deleted member (member_id null) belong to nobody and are skipped.
+       */
+      const stampsByMember = new Map<string, StampEvent[]>();
+      for (const s of stamps) {
+        if (!s.memberId) continue;
+        const list = stampsByMember.get(s.memberId);
+        if (list) list.push(s);
+        else stampsByMember.set(s.memberId, [s]);
+      }
+
+      const redemptionsByMember = new Map<string, Redemption[]>();
+      for (const r of redemptions) {
+        if (!r.memberId) continue;
+        const list = redemptionsByMember.get(r.memberId);
+        if (list) list.push(r);
+        else redemptionsByMember.set(r.memberId, [r]);
+      }
+
+      const goldMembers = members.filter(
+        (m) =>
+          goldStatus(
+            stampsByMember.get(m.id) ?? [],
+            redemptionsByMember.get(m.id) ?? [],
+            now,
+            config.gold,
+          ).isGold,
+      ).length;
+
       const locationStatsList: LocationStats[] = locations.map((loc) => {
         const locStamps = stamps.filter((s) => s.locationSlug === loc.slug);
         const locRedemptions = redemptions.filter((r) => r.locationSlug === loc.slug);
@@ -1046,7 +1083,9 @@ export function createSupabaseDb(): Db {
         members30d: members.filter((m) => since(m.createdAt, t30)).length,
         studentsTotal: members.filter((m) => m.isStudent).length,
         studentsVerified: members.filter((m) => m.studentVerifiedAt !== null).length,
-        goldMembers: 0,
+        goldMembers,
+        // Still not computed here — see the memory adapter for the shape they
+        // should take when someone picks them up.
         consentOutdated: 0,
         retentionDue: 0,
         stampsTotal: stamps.length,
