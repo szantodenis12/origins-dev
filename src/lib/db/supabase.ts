@@ -950,7 +950,7 @@ export function createSupabaseDb(): Db {
     async recordAudit(input: NewAuditInput): Promise<AuditEvent> {
       const now = input.now ?? new Date();
       const { data, error } = await client
-        .from("audit_events")
+        .from("audit_log")
         .insert({
           at: now.toISOString(),
           staff_id: input.staffId ?? null,
@@ -980,7 +980,7 @@ export function createSupabaseDb(): Db {
     },
 
     async listAudit(options?: { limit?: number }): Promise<AuditEvent[]> {
-      let query = client.from("audit_events").select("*").order("at", { ascending: false });
+      let query = client.from("audit_log").select("*").order("at", { ascending: false });
       if (options?.limit) query = query.limit(options.limit);
 
       const { data, error } = await query;

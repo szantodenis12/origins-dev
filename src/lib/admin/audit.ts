@@ -22,16 +22,30 @@ export async function recordAdminAudit(
   },
 ): Promise<void> {
   const db = getDb();
-  const staff = await db.getStaffForSession(session);
-  await db.recordAudit({
-    // The session survived readStaffSession, so the row exists; the fallback
-    // only covers a deactivation racing this very request.
-    staffId: staff?.id ?? null,
-    staffName: staff?.name ?? "Cont necunoscut",
-    locationSlug: session.locationSlug,
-    action: entry.action,
-    target: entry.target,
-    summary: entry.summary,
-    details: entry.details ?? null,
-  });
+
+  // Every caller writes the Jurnal *after* the change itself has been saved,
+  // so letting this throw cannot undo anything — it only tells the manager
+  // their save failed when it did not. That is how one wrong table name
+  // turned every settings save, team change and menu edit into a visible
+  // error while quietly succeeding. A journal entry we cannot write is
+  // logged loudly and left at that.
+  try {
+    const staff = await db.getStaffForSession(session);
+    await db.recordAudit({
+      // The session survived readStaffSession, so the row exists; the fallback
+      // only covers a deactivation racing this very request.
+      staffId: staff?.id ?? null,
+      staffName: staff?.name ?? "Cont necunoscut",
+      locationSlug: session.locationSlug,
+      action: entry.action,
+      target: entry.target,
+      summary: entry.summary,
+      details: entry.details ?? null,
+    });
+  } catch (err) {
+    console.error(
+      `[audit] could not record "${entry.action}" on ${entry.target}:`,
+      err,
+    );
+  }
 }
