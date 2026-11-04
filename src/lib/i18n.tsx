@@ -97,10 +97,13 @@ export const ui = {
     hu: "Rendelés Wolton",
     en: "Order on Wolt",
   },
-  summerDrink: {
-    ro: "Băutura verii",
-    hu: "A nyár itala",
-    en: "Summer drink",
+  // Named for the slot, not the season: the manager moves this flag from
+  // /admin/meniu all year round, and the rest of the app already calls it
+  // "băutura de sezon". A label reading "verii" in November is simply wrong.
+  seasonalDrink: {
+    ro: "Băutura sezonului",
+    hu: "A szezon itala",
+    en: "Seasonal drink",
   },
   housePicks: {
     ro: "Preferatele casei",

@@ -201,7 +201,7 @@ export default function LocationView({
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/6 to-transparent" />
           <div className="absolute right-5 bottom-5 left-5 text-center">
             <div className="text-[10.5px] font-bold tracking-[0.22em] text-sage uppercase">
-              {tx(ui.summerDrink, lang)}
+              {tx(ui.seasonalDrink, lang)}
             </div>
             <h2 className="mt-1 font-[family-name:var(--font-serif)] text-[28px] leading-[1.08] font-medium text-paper">
               {tx(seasonal.name, lang)}
