@@ -1,4 +1,4 @@
-import { supabaseClient } from "../db/supabase-client.ts";
+import { fetchAllRows, supabaseClient } from "../db/supabase-client.ts";
 
 /**
  * Which phone holds which pass, and the APNs token that reaches it.
@@ -88,15 +88,20 @@ export async function loadRegistrationsFromSupabase(): Promise<
   if (!supabaseClient) return Array.from(map.values());
 
   try {
-    const { data, error } = await supabaseClient
-      .from("apple_pass_registrations")
-      .select("*");
+    // Paged: one row per phone per pass, so this passes a thousand long
+    // before the member list does, and a short read here means devices that
+    // silently stop being notified.
+    const { rows: data, error } = await fetchAllRows<Record<string, string>>(
+      (from, to) =>
+        supabaseClient!
+          .from("apple_pass_registrations")
+          .select("*")
+          .order("updated_at", { ascending: true })
+          .range(from, to),
+    );
 
     if (error) {
-      console.error(
-        "[pass-store] cannot read apple_pass_registrations:",
-        error.message,
-      );
+      console.error("[pass-store] cannot read apple_pass_registrations:", error);
     } else if (data) {
       for (const row of data) {
         const reg = fromRow(row);

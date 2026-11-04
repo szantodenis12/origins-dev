@@ -43,11 +43,31 @@ import {
   type RewardDef,
   type StampEvent,
   type StampKind,
+  type RewardId,
 } from "../loyalty.ts";
 import { goldStatus } from "../gold.ts";
 import { normalizePhone } from "../phone.ts";
 import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
-import { supabaseClient } from "./supabase-client.ts";
+import { fetchAllRows, supabaseClient } from "./supabase-client.ts";
+
+/** The two event tables as Postgres returns them, snake_case and all. */
+interface StampRow {
+  id: number;
+  member_id: string;
+  location_slug: string;
+  staff_id: string | null;
+  kind: string;
+  created_at: string;
+}
+
+interface RedemptionRow {
+  id: number;
+  member_id: string;
+  reward_id: RewardId;
+  location_slug: string;
+  staff_id: string | null;
+  created_at: string;
+}
 import { notifyWalletsForMember } from "../wallet/notify.ts";
 
 function isValidUuid(id: string | null | undefined): boolean {
@@ -192,13 +212,23 @@ export function createSupabaseDb(): Db {
     },
 
     async listMembers(): Promise<Member[]> {
-      const { data, error } = await client
-        .from("members")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // Callers count on having everyone: the stats, the push segments and
+      // the nightly wallet job all iterate this. Paged oldest-first so a
+      // signup during the walk cannot shift the pages under us, then
+      // reversed to keep the newest-first order callers expect.
+      const { rows, error } = await fetchAllRows<Record<string, never>>((from, to) =>
+        client
+          .from("members")
+          .select("*")
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      );
 
-      if (error || !data) return [];
-      return data.map(mapDbMember);
+      if (error) {
+        console.error(`[db] listMembers read failed: ${error}`);
+        return [];
+      }
+      return rows.reverse().map(mapDbMember);
     },
 
     async getMemberStamps(memberId: string): Promise<StampEvent[]> {
@@ -972,34 +1002,52 @@ export function createSupabaseDb(): Db {
     /* ------------------------------------------------------- stats --- */
     async getStats(now: Date = new Date()): Promise<PlatformStats> {
       const members = await this.listMembers();
-      const stampsRes = await client.from("stamp_events").select("*");
-      const redemptionsRes = await client.from("redemptions").select("*");
+      // Every number on this page is counted from these two arrays, so a
+      // silently short read does not show up as an error — it shows up as a
+      // total that stops moving. Both tables grow forever; both must be paged.
+      const stampsRes = await fetchAllRows<StampRow>((from, to) =>
+        client
+          .from("stamp_events")
+          .select("*")
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      );
+      const redemptionsRes = await fetchAllRows<RedemptionRow>((from, to) =>
+        client
+          .from("redemptions")
+          .select("*")
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      );
       const campaigns = await this.listPushCampaigns();
       const locations = await this.listLocations();
       const baristas = await this.listStaff();
       const config = await this.getLoyaltyConfig();
 
-      const stamps: StampEvent[] = stampsRes.data
-        ? stampsRes.data.map((s) => ({
-            id: s.id,
-            memberId: s.member_id,
-            locationSlug: s.location_slug,
-            staffId: s.staff_id,
-            kind: s.kind as StampKind,
-            createdAt: s.created_at,
-          }))
-        : [];
+      if (stampsRes.error) {
+        console.error(`[stats] stamp_events read failed: ${stampsRes.error}`);
+      }
+      if (redemptionsRes.error) {
+        console.error(`[stats] redemptions read failed: ${redemptionsRes.error}`);
+      }
 
-      const redemptions: Redemption[] = redemptionsRes.data
-        ? redemptionsRes.data.map((r) => ({
-            id: r.id,
-            memberId: r.member_id,
-            rewardId: r.reward_id,
-            locationSlug: r.location_slug,
-            staffId: r.staff_id,
-            createdAt: r.created_at,
-          }))
-        : [];
+      const stamps: StampEvent[] = stampsRes.rows.map((s) => ({
+        id: s.id,
+        memberId: s.member_id,
+        locationSlug: s.location_slug,
+        staffId: s.staff_id,
+        kind: s.kind as StampKind,
+        createdAt: s.created_at,
+      }));
+
+      const redemptions: Redemption[] = redemptionsRes.rows.map((r) => ({
+        id: r.id,
+        memberId: r.member_id,
+        rewardId: r.reward_id,
+        locationSlug: r.location_slug,
+        staffId: r.staff_id,
+        createdAt: r.created_at,
+      }));
 
       const DAY = 24 * 60 * 60 * 1000;
       const t7 = now.getTime() - 7 * DAY;
