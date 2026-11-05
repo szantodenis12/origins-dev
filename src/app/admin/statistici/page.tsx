@@ -193,8 +193,16 @@ export default async function StatsPage() {
                   <div className="truncate text-[13.5px] font-semibold text-ink">
                     {barista.name}
                   </div>
+                  {/* Where the 30-day scanning actually happened. Someone who
+                      only ever works at their own cafenea reads exactly as
+                      before; someone who covered a shift elsewhere gets the
+                      split, instead of the total hanging under one name. */}
                   <div className="text-[11.5px] text-muted">
-                    {barista.locationName}
+                    {barista.byLocation.length > 1
+                      ? barista.byLocation
+                          .map((at) => `${at.name} ${at.stamps30d}`)
+                          .join(" · ")
+                      : (barista.byLocation[0]?.name ?? barista.locationName)}
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-3 text-right tabular-nums">

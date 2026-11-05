@@ -96,7 +96,20 @@ export interface StaffUser {
   id: string;
   name: string;
   role: StaffRole;
+  /**
+   * Where this person belongs: the cafenea that hired them and the one the
+   * team screen files them under. NOT the list of places they can start a
+   * shift — that is `locationSlugs`, and the two part ways the moment
+   * somebody covers a shift elsewhere.
+   */
   locationSlug: string;
+  /**
+   * Every cafenea this person holds a code for, sorted. One code per cafenea,
+   * so access can be revoked at one without touching the others. Empty means
+   * they cannot start a shift anywhere — the team screen says so rather than
+   * showing a normal-looking row.
+   */
+  locationSlugs: string[];
   /**
    * Nobody is hard-deleted: stamp_events and redemptions reference staffId
    * and Statistici is built on it. Inactive staff cannot log in and drop off
@@ -293,6 +306,10 @@ export type CreateStaffResult =
       pin: string;
     }
   | { status: "invalid_name" }
+  /** A typed code that is not exactly four digits. */
+  | { status: "invalid_pin" }
+  /** Collides with another code at that cafenea, or with a shared env code. */
+  | { status: "pin_taken" }
   | { status: "unknown_location" };
 
 export type RenameStaffResult =
@@ -301,11 +318,16 @@ export type RenameStaffResult =
   | { status: "not_found" };
 
 export type SetStaffPinResult =
-  | { status: "set"; staff: StaffUser; pin: string }
+  | { status: "set"; staff: StaffUser; locationSlug: string; pin: string }
   /** A typed code that is not exactly four digits. */
   | { status: "invalid_pin" }
   /** Collides with another code at the same cafenea or a shared env code. */
   | { status: "pin_taken" }
+  /**
+   * Resetting a code at a cafenea this person has no access to. Granting
+   * access is `grantStaffLocation`, which issues the first code there.
+   */
+  | { status: "no_access" }
   /**
    * The café's shared account. Its code lives in the environment
    * (ADMIN_DEV_PIN / ADMIN_MANAGER_PIN), not in the store, so handing the
@@ -317,6 +339,39 @@ export type SetStaffPinResult =
 
 export type SetStaffActiveResult =
   | { status: "saved"; staff: StaffUser }
+  | { status: "not_found" };
+
+/**
+ * Access at one more cafenea, with the code that opens it. Same one-time
+ * output as `createStaff`: the code is readable here and nowhere else, ever
+ * again.
+ */
+export type GrantStaffLocationResult =
+  | {
+      status: "granted";
+      staff: StaffUser;
+      locationSlug: string;
+      pin: string;
+    }
+  | { status: "invalid_pin" }
+  | { status: "pin_taken" }
+  /** Already has a code there; changing it is `setStaffPin`. */
+  | { status: "already_granted" }
+  | { status: "unknown_location" }
+  /** The shared account answers to the env code and is tied to its cafenea. */
+  | { status: "shared_account" }
+  | { status: "not_found" };
+
+/**
+ * Takes the code away at one cafenea. Deliberately not the same thing as
+ * `setStaffActive(false)`: that stops the person everywhere and hides them
+ * from the team list, this one only ends their shifts at one place.
+ */
+export type RevokeStaffLocationResult =
+  | { status: "revoked"; staff: StaffUser; locationSlug: string }
+  /** No code there to take away. */
+  | { status: "no_access" }
+  | { status: "shared_account" }
   | { status: "not_found" };
 
 /* ------------------------------------------------------- push (phase 5) --- */
@@ -402,11 +457,24 @@ export interface LocationStats {
 export interface BaristaStats {
   staffId: string;
   name: string;
+  /** Their home cafenea, which is not necessarily where they scanned. */
   locationSlug: string;
   locationName: string;
+  /** Totals across every cafenea they worked at in the window. */
   stamps7d: number;
   stamps30d: number;
   redemptions30d: number;
+  /**
+   * The same 30-day activity split by the cafenea it happened at, busiest
+   * first, empty cafenele left out. Someone who only ever works at their home
+   * cafenea has exactly one entry; the split is what makes a covered shift
+   * readable instead of silently inflating the home cafenea's line.
+   */
+  byLocation: {
+    slug: string;
+    name: string;
+    stamps30d: number;
+  }[];
 }
 
 export interface PlatformStats {
@@ -521,11 +589,28 @@ export interface Db {
   /** The name is what Statistici shows, so it has to be editable. */
   renameStaff(id: string, name: string): Promise<RenameStaffResult>;
   /**
-   * No `pin` generates a new code, a given one accepts a manager-typed code.
-   * Either way the old code stops working and the new one is returned once.
+   * Replaces the code this person uses at ONE cafenea; their codes elsewhere
+   * are untouched. No `pin` generates one, a given one accepts a
+   * manager-typed code. Either way the old code stops working there and the
+   * new one is returned once.
    */
-  setStaffPin(id: string, pin?: string): Promise<SetStaffPinResult>;
+  setStaffPin(
+    id: string,
+    locationSlug: string,
+    pin?: string,
+  ): Promise<SetStaffPinResult>;
   setStaffActive(id: string, active: boolean): Promise<SetStaffActiveResult>;
+  /** Lets this person start shifts at one more cafenea, with a new code. */
+  grantStaffLocation(
+    id: string,
+    locationSlug: string,
+    pin?: string,
+  ): Promise<GrantStaffLocationResult>;
+  /** Ends their shifts at one cafenea, leaving the rest alone. */
+  revokeStaffLocation(
+    id: string,
+    locationSlug: string,
+  ): Promise<RevokeStaffLocationResult>;
 
   /* menu — public read: active products only, in menu order */
   listLocations(): Promise<Location[]>;

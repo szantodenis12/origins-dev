@@ -22,7 +22,12 @@ import {
 } from "../data.ts";
 import { normalizePhone } from "../phone.ts";
 import { membersPastRetention } from "../retention.ts";
-import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
+import {
+  generateStaffPin,
+  hashStaffPin,
+  reservedPins,
+  verifyStaffPin,
+} from "../admin/staff-pin.ts";
 // A value import from ./index.ts is a module cycle (index imports this
 // adapter), but a harmless one: CONSENT_VERSION is only read inside getStats,
 // long after both modules finished evaluating.
@@ -61,6 +66,8 @@ import type {
   SetStaffActiveResult,
   SetStaffPinResult,
   StaffSession,
+  GrantStaffLocationResult,
+  RevokeStaffLocationResult,
   StaffUser,
   WithdrawMarketingConsentResult,
 } from "./index.ts";
@@ -79,7 +86,7 @@ interface Store {
   members: Member[];
   stamps: StampEvent[];
   redemptions: Redemption[];
-  staff: StaffUser[];
+  staff: StaffRow[];
   /**
    * Personal barista codes; Supabase Auth replaces this in phase 3+. Only a
    * peppered hash is stored (lib/admin/staff-pin.ts) — a code is readable
@@ -363,6 +370,27 @@ function setPhoto(
   else target[key] = value;
 }
 
+/**
+ * What the store holds: a person, without the cafenele they can work at.
+ * Access is `staffPins` — one row per (person, cafenea) — and keeping a copy
+ * on the person as well would be two truths to drift apart.
+ */
+type StaffRow = Omit<StaffUser, "locationSlugs">;
+
+/** Attaches the cafenele this person holds a code for. */
+function withAccess(store: Store, row: StaffRow): StaffUser {
+  // A shared account's code lives in the environment, not in staffPins, so
+  // it reads as belonging to its own cafenea rather than nowhere.
+  if (row.shared) return { ...row, locationSlugs: [row.locationSlug] };
+  return {
+    ...row,
+    locationSlugs: store.staffPins
+      .filter((p) => p.staffId === row.id)
+      .map((p) => p.locationSlug)
+      .sort(),
+  };
+}
+
 /** "Piadineria Aurel Lazăr" -> "piadineria-aurel-lazar". */
 function slugify(text: string): string {
   return text
@@ -371,31 +399,6 @@ function slugify(text: string): string {
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-}
-
-/** The shared env codes (dev 0000, manager 1111) no personal code may use. */
-function reservedPins(): Set<string> {
-  return new Set(
-    [
-      process.env.ADMIN_DEV_PIN ?? "0000",
-      process.env.ADMIN_MANAGER_PIN ?? "1111",
-    ].map((pin) => pin.trim()),
-  );
-}
-
-/**
- * Random 4-digit personal barista code. Never the shared env codes and never
- * a code already used at the location.
- */
-function newStaffPin(taken: (pin: string) => boolean): string {
-  const reserved = reservedPins();
-  for (;;) {
-    const bytes = new Uint8Array(2);
-    crypto.getRandomValues(bytes);
-    const pin = String(((bytes[0] << 8) | bytes[1]) % 10000).padStart(4, "0");
-    if (reserved.has(pin)) continue;
-    if (!taken(pin)) return pin;
-  }
 }
 
 /**
@@ -415,6 +418,30 @@ function pinTakenAt(
       p.pinHash === hash &&
       p.staffId !== ignoreStaffId,
   );
+}
+
+/** What a code request can come back as, besides the code itself. */
+type PinOutcome = string | "invalid" | "taken" | "exhausted";
+
+/**
+ * Settles on the code to store at one cafenea: the manager's, if it is four
+ * digits and free there, otherwise a generated one that is. Nothing else may
+ * issue a code — two people sharing one at a cafenea means login answers with
+ * whichever row it reads first, and the stamps land on the wrong person.
+ */
+function resolvePin(
+  store: Store,
+  locationSlug: string,
+  pin: string | undefined,
+  ignoreStaffId?: string,
+): PinOutcome {
+  const isTaken = (candidate: string) =>
+    pinTakenAt(store, locationSlug, candidate, ignoreStaffId);
+
+  if (pin === undefined) return generateStaffPin(isTaken) ?? "exhausted";
+  if (!/^\d{4}$/.test(pin)) return "invalid";
+  if (reservedPins().has(pin) || isTaken(pin)) return "taken";
+  return pin;
 }
 
 /** Names land on Statistici and printed codes — refuse the obvious garbage. */
@@ -766,34 +793,38 @@ export function createMemoryDb(): Db {
     async getStaffForSession(
       session: StaffSession,
     ): Promise<StaffUser | null> {
-      const staff = getStore().staff;
+      const store = getStore();
+      const staff = store.staff;
       // Only active rows resolve: a person deactivated mid-shift loses the
       // session on the next request, because readStaffSession re-reads here.
       if (session.staffId) {
-        // Personal login: the id must still belong to the session's location.
-        return (
-          staff.find(
-            (s) =>
-              s.id === session.staffId &&
-              s.locationSlug === session.locationSlug &&
-              s.role === session.role &&
-              s.active,
-          ) ?? null
+        const person = staff.find(
+          (s) =>
+            s.id === session.staffId &&
+            s.role === session.role &&
+            s.active,
         );
+        if (!person) return null;
+        // Their home cafenea is not the test — a code at the cafenea the
+        // shift is running at is. Revoking it ends the shift on the next
+        // request, which is what revoking is for.
+        const resolved = withAccess(store, person);
+        return resolved.locationSlugs.includes(session.locationSlug)
+          ? resolved
+          : null;
       }
       // Shared code: only the café's shared account answers. Falling through
       // to any matching row would credit a named barista with stamps scanned
       // on the common code, and "cine nu scanează" is exactly what the
       // manager reads Statistici for.
-      return (
-        staff.find(
-          (s) =>
-            s.locationSlug === session.locationSlug &&
-            s.role === session.role &&
-            s.shared &&
-            s.active,
-        ) ?? null
+      const shared = staff.find(
+        (s) =>
+          s.locationSlug === session.locationSlug &&
+          s.role === session.role &&
+          s.shared &&
+          s.active,
       );
+      return shared ? withAccess(store, shared) : null;
     },
 
     async findStaffByPin(
@@ -808,7 +839,7 @@ export function createMemoryDb(): Db {
       if (!entry) return null;
       const staff = store.staff.find((s) => s.id === entry.staffId) ?? null;
       // A right code on a deactivated row is still a refused login.
-      return staff?.active ? staff : null;
+      return staff?.active ? withAccess(store, staff) : null;
     },
 
     /* ------------------------------------------------------------- menu --- */
@@ -1011,7 +1042,8 @@ export function createMemoryDb(): Db {
           active: true,
           shared: false,
         });
-        const pin = newStaffPin((candidate) => pinTakenAt(store, slug, candidate));
+        const pin = resolvePin(store, slug, undefined);
+        if (typeof pin !== "string") continue;
         store.staffPins.push({
           locationSlug: slug,
           pinHash: hashStaffPin(pin),
@@ -1026,11 +1058,16 @@ export function createMemoryDb(): Db {
     /* ----------------------------------------------------------- echipa --- */
 
     async listStaff(locationSlug?: string): Promise<StaffUser[]> {
-      const staff = locationSlug
-        ? getStore().staff.filter((s) => s.locationSlug === locationSlug)
-        : getStore().staff;
+      const store = getStore();
+      const staff = store.staff.map((row) => withAccess(store, row));
+      // Filtering on access, not on the home cafenea: the team screen for a
+      // cafenea must show everyone who can work there, including whoever is
+      // covering shifts from somewhere else.
+      const visible = locationSlug
+        ? staff.filter((s) => s.locationSlugs.includes(locationSlug))
+        : staff;
       // Stable reading order for the team screen: cafenea, then name.
-      return [...staff].sort(
+      return visible.sort(
         (a, b) =>
           a.locationSlug.localeCompare(b.locationSlug) ||
           a.name.localeCompare(b.name, "ro"),
@@ -1046,7 +1083,11 @@ export function createMemoryDb(): Db {
         return { status: "unknown_location" };
       }
 
-      const staff: StaffUser = {
+      const pin = resolvePin(store, input.locationSlug, input.pin);
+      if (pin === "invalid") return { status: "invalid_pin" };
+      if (pin === "taken" || pin === "exhausted") return { status: "pin_taken" };
+
+      const staff: StaffRow = {
         // Random like member ids — the readable staff-{slug} ids stay with
         // the seed; Supabase uses uuids here anyway (staff_users.id).
         id: crypto.randomUUID(),
@@ -1059,20 +1100,13 @@ export function createMemoryDb(): Db {
         shared: false,
       };
       store.staff.push(staff);
-
-      const pin =
-        input.pin && /^\d{4}$/.test(input.pin)
-          ? input.pin
-          : newStaffPin((candidate) =>
-              pinTakenAt(store, input.locationSlug, candidate),
-            );
       store.staffPins.push({
         locationSlug: input.locationSlug,
         pinHash: hashStaffPin(pin),
         staffId: staff.id,
       });
 
-      return { status: "created", staff, pin };
+      return { status: "created", staff: withAccess(store, staff), pin };
     },
 
     async renameStaff(id: string, name: string): Promise<RenameStaffResult> {
@@ -1081,10 +1115,14 @@ export function createMemoryDb(): Db {
       const cleaned = cleanStaffName(name);
       if (!cleaned) return { status: "invalid_name" };
       staff.name = cleaned;
-      return { status: "renamed", staff };
+      return { status: "renamed", staff: withAccess(getStore(), staff) };
     },
 
-    async setStaffPin(id: string, pin?: string): Promise<SetStaffPinResult> {
+    async setStaffPin(
+      id: string,
+      locationSlug: string,
+      pin?: string,
+    ): Promise<SetStaffPinResult> {
       const store = getStore();
       const staff = store.staff.find((s) => s.id === id);
       if (!staff) return { status: "not_found" };
@@ -1092,42 +1130,101 @@ export function createMemoryDb(): Db {
       // own. Issuing a "new" one would leave the old env code working.
       if (staff.shared) return { status: "shared_account" };
 
-      let next: string;
-      if (pin === undefined) {
-        next = newStaffPin((candidate) =>
-          pinTakenAt(store, staff.locationSlug, candidate, staff.id),
-        );
-      } else {
-        // Manager-typed code: same rules a generated one lives by.
-        if (!/^\d{4}$/.test(pin)) return { status: "invalid_pin" };
-        if (
-          reservedPins().has(pin) ||
-          pinTakenAt(store, staff.locationSlug, pin, staff.id)
-        ) {
-          return { status: "pin_taken" };
-        }
-        next = pin;
+      const current = store.staffPins.find(
+        (p) => p.staffId === id && p.locationSlug === locationSlug,
+      );
+      if (!current) return { status: "no_access" };
+
+      const next = resolvePin(store, locationSlug, pin, id);
+      if (next === "invalid") return { status: "invalid_pin" };
+      if (next === "taken" || next === "exhausted") {
+        return { status: "pin_taken" };
       }
 
-      // Replace, never append: the old code must stop working immediately.
-      store.staffPins = store.staffPins.filter((p) => p.staffId !== staff.id);
-      store.staffPins.push({
-        locationSlug: staff.locationSlug,
-        pinHash: hashStaffPin(next),
-        staffId: staff.id,
-      });
+      // In place: the old code must stop working here immediately, and the
+      // codes this person holds at other cafenele must not be touched.
+      current.pinHash = hashStaffPin(next);
 
-      return { status: "set", staff, pin: next };
+      return {
+        status: "set",
+        staff: withAccess(store, staff),
+        locationSlug,
+        pin: next,
+      };
     },
 
     async setStaffActive(
       id: string,
       active: boolean,
     ): Promise<SetStaffActiveResult> {
-      const staff = getStore().staff.find((s) => s.id === id);
+      const store = getStore();
+      const staff = store.staff.find((s) => s.id === id);
       if (!staff) return { status: "not_found" };
       staff.active = active;
-      return { status: "saved", staff };
+      return { status: "saved", staff: withAccess(store, staff) };
+    },
+
+    async grantStaffLocation(
+      id: string,
+      locationSlug: string,
+      pin?: string,
+    ): Promise<GrantStaffLocationResult> {
+      const store = getStore();
+      const staff = store.staff.find((s) => s.id === id);
+      if (!staff) return { status: "not_found" };
+      if (staff.shared) return { status: "shared_account" };
+      // Coming-soon cafenele count: they get staffed before they open.
+      if (!store.locations.some((l) => l.slug === locationSlug)) {
+        return { status: "unknown_location" };
+      }
+      if (
+        store.staffPins.some(
+          (p) => p.staffId === id && p.locationSlug === locationSlug,
+        )
+      ) {
+        return { status: "already_granted" };
+      }
+
+      const next = resolvePin(store, locationSlug, pin, id);
+      if (next === "invalid") return { status: "invalid_pin" };
+      if (next === "taken" || next === "exhausted") {
+        return { status: "pin_taken" };
+      }
+
+      store.staffPins.push({
+        locationSlug,
+        pinHash: hashStaffPin(next),
+        staffId: id,
+      });
+
+      return {
+        status: "granted",
+        staff: withAccess(store, staff),
+        locationSlug,
+        pin: next,
+      };
+    },
+
+    async revokeStaffLocation(
+      id: string,
+      locationSlug: string,
+    ): Promise<RevokeStaffLocationResult> {
+      const store = getStore();
+      const staff = store.staff.find((s) => s.id === id);
+      if (!staff) return { status: "not_found" };
+      if (staff.shared) return { status: "shared_account" };
+
+      const before = store.staffPins.length;
+      store.staffPins = store.staffPins.filter(
+        (p) => !(p.staffId === id && p.locationSlug === locationSlug),
+      );
+      if (store.staffPins.length === before) return { status: "no_access" };
+
+      return {
+        status: "revoked",
+        staff: withAccess(store, staff),
+        locationSlug,
+      };
     },
 
     /* ------------------------------------------------------------- push --- */
@@ -1266,23 +1363,46 @@ export function createMemoryDb(): Db {
         locations,
         baristas: store.staff
           .filter((s) => s.role === "barista")
-          .map((s) => ({
-            staffId: s.id,
-            name: s.name,
-            locationSlug: s.locationSlug,
-            locationName:
-              store.locations.find((l) => l.slug === s.locationSlug)?.name ??
-              s.locationSlug,
-            stamps7d: store.stamps.filter(
-              (e) => e.staffId === s.id && since(e.createdAt, t7),
-            ).length,
-            stamps30d: store.stamps.filter(
+          .map((s) => {
+            const mine30d = store.stamps.filter(
               (e) => e.staffId === s.id && since(e.createdAt, t30),
-            ).length,
-            redemptions30d: store.redemptions.filter(
-              (r) => r.staffId === s.id && since(r.createdAt, t30),
-            ).length,
-          }))
+            );
+
+            // Where the scanning happened, not where the person is filed.
+            // Totals alone would fold a covered shift into the home
+            // cafenea's line, which is the whole point of the split.
+            const perLocation = new Map<string, number>();
+            for (const event of mine30d) {
+              perLocation.set(
+                event.locationSlug,
+                (perLocation.get(event.locationSlug) ?? 0) + 1,
+              );
+            }
+
+            return {
+              staffId: s.id,
+              name: s.name,
+              locationSlug: s.locationSlug,
+              locationName:
+                store.locations.find((l) => l.slug === s.locationSlug)?.name ??
+                s.locationSlug,
+              stamps7d: store.stamps.filter(
+                (e) => e.staffId === s.id && since(e.createdAt, t7),
+              ).length,
+              stamps30d: mine30d.length,
+              redemptions30d: store.redemptions.filter(
+                (r) => r.staffId === s.id && since(r.createdAt, t30),
+              ).length,
+              byLocation: [...perLocation.entries()]
+                .map(([slug, stamps30d]) => ({
+                  slug,
+                  name:
+                    store.locations.find((l) => l.slug === slug)?.name ?? slug,
+                  stamps30d,
+                }))
+                .sort((x, y) => y.stamps30d - x.stamps30d),
+            };
+          })
           .sort((a, b) => b.stamps30d - a.stamps30d),
       };
     },

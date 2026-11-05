@@ -25,10 +25,11 @@ export default async function EchipaPage() {
   ]);
 
   // Scanning activity already lives in the stats: reuse it, don't recompute.
-  const stamps30d = new Map(
-    stats.baristas.map((barista) => [barista.staffId, barista.stamps30d]),
-  );
+  const scanning = new Map(stats.baristas.map((barista) => [barista.staffId, barista]));
 
+  // Grouped by home cafenea, because that is where a person belongs. Where
+  // they can actually start a shift is `locationSlugs` on the row, and the
+  // two differ for anybody covering shifts elsewhere.
   const groups: TeamGroup[] = locations.map((item) => ({
     slug: item.slug,
     name: item.name,
@@ -40,7 +41,25 @@ export default async function EchipaPage() {
         role: person.role,
         active: person.active,
         shared: person.shared,
-        stamps30d: stamps30d.get(person.id) ?? null,
+        stamps30d: scanning.get(person.id)?.stamps30d ?? null,
+        locationSlug: person.locationSlug,
+        locationSlugs: person.locationSlugs,
+        stampsByLocation: scanning.get(person.id)?.byLocation ?? [],
+      })),
+    // Whoever can start a shift here but is filed somewhere else. Listed as
+    // a line, not as rows: their buttons belong on their own row, under
+    // their own cafenea, so there is one place to rename or deactivate them.
+    visitors: staff
+      .filter(
+        (person) =>
+          person.locationSlug !== item.slug &&
+          person.locationSlugs.includes(item.slug),
+      )
+      .map((person) => ({
+        name: person.name,
+        from:
+          locations.find((l) => l.slug === person.locationSlug)?.name ??
+          person.locationSlug,
       })),
   }));
 
@@ -50,7 +69,10 @@ export default async function EchipaPage() {
         locationName={location?.name ?? session.locationSlug}
         role={session.role}
       />
-      <TeamAdmin groups={groups} />
+      <TeamAdmin
+        groups={groups}
+        locations={locations.map(({ slug, name }) => ({ slug, name }))}
+      />
     </PhoneFrame>
   );
 }

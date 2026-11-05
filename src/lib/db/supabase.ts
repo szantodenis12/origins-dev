@@ -6,6 +6,7 @@ import type {
   CreateLocationResult,
   CreateMemberResult,
   CreateStaffResult,
+  GrantStaffLocationResult,
   Db,
   ForgetMemberResult,
   LocationPatch,
@@ -25,6 +26,7 @@ import type {
   RedeemResult,
   ReissuePassSerialResult,
   RenameStaffResult,
+  RevokeStaffLocationResult,
   SetMemberBlockedResult,
   SetStaffActiveResult,
   SetStaffPinResult,
@@ -47,7 +49,12 @@ import {
 } from "../loyalty.ts";
 import { goldStatus } from "../gold.ts";
 import { normalizePhone } from "../phone.ts";
-import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
+import {
+  generateStaffPin,
+  hashStaffPin,
+  reservedPins,
+  verifyStaffPin,
+} from "../admin/staff-pin.ts";
 import { fetchAllRows, supabaseClient } from "./supabase-client.ts";
 
 /** The two event tables as Postgres returns them, snake_case and all. */
@@ -474,16 +481,13 @@ export function createSupabaseDb(): Db {
           .eq("id", session.staffId)
           .eq("active", true)
           .single();
-        if (data) return mapDbStaff(data);
-        if (session.staffId.startsWith("staff-")) {
-          return {
-            id: session.staffId,
-            name: "Barista Demo",
-            role: session.role,
-            locationSlug: session.locationSlug,
-            active: true,
-            shared: false,
-          };
+        if (data) {
+          const slugs = await locationsForStaff(client, session.staffId);
+          // Their home cafenea is not the test — holding a code at the
+          // cafenea the shift is running at is. Revoking it ends the shift on
+          // the next request, which is the point of revoking.
+          if (!slugs.includes(session.locationSlug)) return null;
+          return mapDbStaff(data, slugs);
         }
       }
       const { data } = await client
@@ -502,6 +506,7 @@ export function createSupabaseDb(): Db {
         name: `Cont comun ${session.role}`,
         role: session.role,
         locationSlug: session.locationSlug,
+        locationSlugs: [session.locationSlug],
         active: true,
         shared: true,
       };
@@ -517,6 +522,7 @@ export function createSupabaseDb(): Db {
           name: "Cont comun barista",
           role: "barista",
           locationSlug,
+          locationSlugs: [locationSlug],
           active: true,
           shared: true,
         };
@@ -528,76 +534,84 @@ export function createSupabaseDb(): Db {
           name: "Cont comun manager",
           role: "manager",
           locationSlug,
+          locationSlugs: [locationSlug],
           active: true,
           shared: true,
         };
       }
 
-      const demoPins: Record<string, { pin1: string; pin2: string }> = {
-        era: { pin1: "2011", pin2: "2012" },
-        rogerius: { pin1: "2021", pin2: "2022" },
-        gara: { pin1: "2031", pin2: "2032" },
-        oraselul: { pin1: "2041", pin2: "2042" },
-        lazar: { pin1: "2051", pin2: "2052" },
-      };
+      // The codes live in staff_pins, one row per (person, cafenea), so this
+      // reads whoever can start a shift HERE — not whoever is filed here.
+      const { data: pins, error } = await client
+        .from("staff_pins")
+        .select("staff_id, pin_hash")
+        .eq("location_slug", locationSlug);
 
-      const locationDemos = demoPins[locationSlug];
-      if (locationDemos) {
-        if (pin === locationDemos.pin1) {
-          return {
-            id: `staff-${locationSlug}-b1`,
-            name: "Barista demo unu",
-            role: "barista",
-            locationSlug,
-            active: true,
-            shared: false,
-          };
-        }
-        if (pin === locationDemos.pin2) {
-          return {
-            id: `staff-${locationSlug}-b2`,
-            name: "Barista demo doi",
-            role: "barista",
-            locationSlug,
-            active: true,
-            shared: false,
-          };
-        }
+      if (error) {
+        // Never degrade into "wrong code" on an infrastructure failure: a
+        // barista retyping a correct code all evening is the worst possible
+        // way to learn the database is unreachable.
+        console.error("[supabase] findStaffByPin read error:", error);
+        return null;
       }
+      if (!pins?.length) return null;
 
-      const { data } = await client
+      const match = pins.find((row: { pin_hash: string }) =>
+        verifyStaffPin(pin, row.pin_hash),
+      );
+      if (!match) return null;
+
+      const { data: staff } = await client
         .from("staff_users")
         .select("*")
-        .eq("location_slug", locationSlug)
-        .eq("active", true);
+        .eq("id", match.staff_id)
+        .eq("active", true)
+        .single();
 
-      if (!data) return null;
-      for (const s of data) {
-        if (s.pin_hash && verifyStaffPin(pin, s.pin_hash)) {
-          return mapDbStaff(s);
-        }
-      }
-      return null;
+      // A right code on a deactivated row is still a refused login.
+      if (!staff) return null;
+      return mapDbStaff(staff, await locationsForStaff(client, staff.id));
     },
 
     async listStaff(locationSlug?: string): Promise<StaffUser[]> {
-      let query = client.from("staff_users").select("*");
-      if (locationSlug) query = query.eq("location_slug", locationSlug);
-      const { data, error } = await query.order("name", { ascending: true });
+      const { data, error } = await client
+        .from("staff_users")
+        .select("*")
+        .order("name", { ascending: true });
       if (error || !data) return [];
-      return data.map(mapDbStaff);
+
+      const access = await staffLocationIndex(client);
+      // Shared accounts hold no code of their own — theirs lives in the
+      // environment — so they keep the home cafenea rather than reading as
+      // locked out. For everyone else an empty list is the truth.
+      const staff = data.map((row: any) =>
+        mapDbStaff(row, row.shared ? undefined : (access.get(row.id) ?? [])),
+      );
+
+      // Filtering on access, not on the home cafenea: the team screen for a
+      // cafenea has to show everyone who can work there, including the people
+      // covering shifts from elsewhere.
+      return locationSlug
+        ? staff.filter((person) => person.locationSlugs.includes(locationSlug))
+        : staff;
     },
 
     async createStaff(input: NewStaffInput): Promise<CreateStaffResult> {
       const name = input.name.trim();
       if (!name || name.length > 60) return { status: "invalid_name" };
 
-      const pin = input.pin && /^\d{4}$/.test(input.pin)
-        ? input.pin
-        : Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = hashStaffPin(pin);
-      const newId = crypto.randomUUID();
+      const { data: location } = await client
+        .from("locations")
+        .select("slug")
+        .eq("slug", input.locationSlug)
+        .single();
+      if (!location) return { status: "unknown_location" };
 
+      const pin = await resolveNewPin(client, input.locationSlug, input.pin);
+      if (pin === "invalid") return { status: "invalid_pin" };
+      if (pin === "taken" || pin === "exhausted") return { status: "pin_taken" };
+
+      const newId = crypto.randomUUID();
       const { data, error } = await client
         .from("staff_users")
         .insert({
@@ -605,7 +619,6 @@ export function createSupabaseDb(): Db {
           name,
           location_slug: input.locationSlug,
           role: input.role,
-          pin_hash: pinHash,
           active: true,
           shared: false,
         })
@@ -617,9 +630,23 @@ export function createSupabaseDb(): Db {
         return { status: "invalid_name" };
       }
 
+      const { error: pinError } = await client.from("staff_pins").insert({
+        staff_id: newId,
+        location_slug: input.locationSlug,
+        pin_hash: hashStaffPin(pin),
+      });
+
+      if (pinError) {
+        // A person with no code cannot log in anywhere and nothing in the UI
+        // would say why, so undo the half-made account rather than leave one.
+        console.error("[supabase] createStaff pin insert error:", pinError);
+        await client.from("staff_users").delete().eq("id", newId);
+        return { status: "invalid_name" };
+      }
+
       return {
         status: "created",
-        staff: mapDbStaff(data),
+        staff: mapDbStaff(data, [input.locationSlug]),
         pin,
       };
     },
@@ -633,25 +660,46 @@ export function createSupabaseDb(): Db {
         .single();
 
       if (error || !data) return { status: "not_found" };
-      return { status: "renamed", staff: mapDbStaff(data) };
+      return {
+        status: "renamed",
+        staff: mapDbStaff(data, await locationsForStaff(client, id)),
+      };
     },
 
-    async setStaffPin(id: string, pin?: string): Promise<SetStaffPinResult> {
-      if (pin && !/^\d{4}$/.test(pin)) {
-        return { status: "invalid_pin" };
+    async setStaffPin(
+      id: string,
+      locationSlug: string,
+      pin?: string,
+    ): Promise<SetStaffPinResult> {
+      const staff = await staffRow(client, id);
+      if (!staff) return { status: "not_found" };
+      // The shared account answers to the env code, which this store does not
+      // own. Issuing a "new" one here would leave the old env code working.
+      if (staff.shared) return { status: "shared_account" };
+
+      const slugs = await locationsForStaff(client, id);
+      if (!slugs.includes(locationSlug)) return { status: "no_access" };
+
+      const next = await resolveNewPin(client, locationSlug, pin, id);
+      if (next === "invalid") return { status: "invalid_pin" };
+      if (next === "taken" || next === "exhausted") return { status: "pin_taken" };
+
+      const { error } = await client
+        .from("staff_pins")
+        .update({ pin_hash: hashStaffPin(next) })
+        .eq("staff_id", id)
+        .eq("location_slug", locationSlug);
+
+      if (error) {
+        console.error("[supabase] setStaffPin error:", error);
+        return { status: "not_found" };
       }
-      const newPin = pin ?? Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = hashStaffPin(newPin);
-
-      const { data, error } = await client
-        .from("staff_users")
-        .update({ pin_hash: pinHash })
-        .eq("id", id)
-        .select()
-        .single();
-
-      if (error || !data) return { status: "not_found" };
-      return { status: "set", staff: mapDbStaff(data), pin: newPin };
+      return {
+        status: "set",
+        staff: mapDbStaff(staff, slugs),
+        locationSlug,
+        pin: next,
+      };
     },
 
     async setStaffActive(id: string, active: boolean): Promise<SetStaffActiveResult> {
@@ -663,7 +711,82 @@ export function createSupabaseDb(): Db {
         .single();
 
       if (error || !data) return { status: "not_found" };
-      return { status: "saved", staff: mapDbStaff(data) };
+      return {
+        status: "saved",
+        staff: mapDbStaff(data, await locationsForStaff(client, id)),
+      };
+    },
+
+    async grantStaffLocation(
+      id: string,
+      locationSlug: string,
+      pin?: string,
+    ): Promise<GrantStaffLocationResult> {
+      const staff = await staffRow(client, id);
+      if (!staff) return { status: "not_found" };
+      if (staff.shared) return { status: "shared_account" };
+
+      const { data: location } = await client
+        .from("locations")
+        .select("slug")
+        .eq("slug", locationSlug)
+        .single();
+      if (!location) return { status: "unknown_location" };
+
+      const slugs = await locationsForStaff(client, id);
+      if (slugs.includes(locationSlug)) return { status: "already_granted" };
+
+      const next = await resolveNewPin(client, locationSlug, pin, id);
+      if (next === "invalid") return { status: "invalid_pin" };
+      if (next === "taken" || next === "exhausted") return { status: "pin_taken" };
+
+      const { error } = await client.from("staff_pins").insert({
+        staff_id: id,
+        location_slug: locationSlug,
+        pin_hash: hashStaffPin(next),
+      });
+
+      if (error) {
+        console.error("[supabase] grantStaffLocation error:", error);
+        return { status: "not_found" };
+      }
+      return {
+        status: "granted",
+        staff: mapDbStaff(staff, [...slugs, locationSlug].sort()),
+        locationSlug,
+        pin: next,
+      };
+    },
+
+    async revokeStaffLocation(
+      id: string,
+      locationSlug: string,
+    ): Promise<RevokeStaffLocationResult> {
+      const staff = await staffRow(client, id);
+      if (!staff) return { status: "not_found" };
+      if (staff.shared) return { status: "shared_account" };
+
+      const slugs = await locationsForStaff(client, id);
+      if (!slugs.includes(locationSlug)) return { status: "no_access" };
+
+      const { error } = await client
+        .from("staff_pins")
+        .delete()
+        .eq("staff_id", id)
+        .eq("location_slug", locationSlug);
+
+      if (error) {
+        console.error("[supabase] revokeStaffLocation error:", error);
+        return { status: "not_found" };
+      }
+      return {
+        status: "revoked",
+        staff: mapDbStaff(
+          staff,
+          slugs.filter((slug) => slug !== locationSlug),
+        ),
+        locationSlug,
+      };
     },
 
     /* -------------------------------------------------------- menu --- */
@@ -859,35 +982,53 @@ export function createSupabaseDb(): Db {
 
       if (error || !data) return { status: "name_exists" };
 
-      const baristaPin = Math.floor(1000 + Math.random() * 9000).toString();
-      const managerPin = Math.floor(1000 + Math.random() * 9000).toString();
+      // A brand new cafenea holds no codes yet, so the only collisions to
+      // avoid are between these two and the reserved env codes.
+      const taken = new Set<string>();
+      const isTaken = (pin: string) => taken.has(hashStaffPin(pin));
+      const staffPins: { name: string; pin: string }[] = [];
 
-      await client.from("staff_users").insert([
-        {
-          name: `Barista ${input.name}`,
+      for (const role of ["barista", "manager"] as const) {
+        const name = `${role === "barista" ? "Barista" : "Manager"} ${input.name}`;
+        const pin = generateStaffPin(isTaken);
+        if (!pin) continue;
+        taken.add(hashStaffPin(pin));
+
+        // staff_users.id has no database default — it mirrors auth.users.id —
+        // so it is generated here. Without it the insert is rejected and the
+        // cafenea is created with nobody able to log into it.
+        const staffId = crypto.randomUUID();
+        const { error: staffError } = await client.from("staff_users").insert({
+          id: staffId,
+          name,
           location_slug: slug,
-          role: "barista",
-          pin_hash: hashStaffPin(baristaPin),
+          role,
           active: true,
           shared: false,
-        },
-        {
-          name: `Manager ${input.name}`,
+        });
+        if (staffError) {
+          console.error("[supabase] createLocation staff error:", staffError);
+          continue;
+        }
+
+        const { error: pinError } = await client.from("staff_pins").insert({
+          staff_id: staffId,
           location_slug: slug,
-          role: "manager",
-          pin_hash: hashStaffPin(managerPin),
-          active: true,
-          shared: false,
-        },
-      ]);
+          pin_hash: hashStaffPin(pin),
+        });
+        if (pinError) {
+          console.error("[supabase] createLocation pin error:", pinError);
+          await client.from("staff_users").delete().eq("id", staffId);
+          continue;
+        }
+
+        staffPins.push({ name, pin });
+      }
 
       return {
         status: "created",
         location: mapDbLocation(data),
-        staffPins: [
-          { name: `Barista ${input.name}`, pin: baristaPin },
-          { name: `Manager ${input.name}`, pin: managerPin },
-        ],
+        staffPins,
       };
     },
 
@@ -953,7 +1094,14 @@ export function createSupabaseDb(): Db {
         .from("audit_log")
         .insert({
           at: now.toISOString(),
-          staff_id: input.staffId ?? null,
+          // A shift started on the shared env code has no row of its own, so
+          // getStaffForSession answers with a synthetic id ("shared-era-
+          // manager"). audit_log.staff_id is a uuid foreign key, so handing
+          // that over is rejected by Postgres and the whole entry is lost —
+          // which is why the Jurnal stayed empty for every manager working
+          // on the common code. The name is snapshotted anyway, so the row
+          // still says who did it.
+          staff_id: isUuid(input.staffId) ? input.staffId : null,
           staff_name: input.staffName,
           location_slug: input.locationSlug,
           action: input.action,
@@ -1114,14 +1262,36 @@ export function createSupabaseDb(): Db {
         .filter((b) => b.role === "barista")
         .map((b) => {
           const locName = locations.find((l) => l.slug === b.locationSlug)?.name ?? b.locationSlug;
+          const mine30d = stamps.filter(
+            (e) => e.staffId === b.id && since(e.createdAt, t30),
+          );
+
+          // Where the scanning actually happened. Totals alone would hide a
+          // covered shift inside the home cafenea's line — the whole reason
+          // someone can hold codes at more than one cafenea.
+          const perLocation = new Map<string, number>();
+          for (const event of mine30d) {
+            perLocation.set(
+              event.locationSlug,
+              (perLocation.get(event.locationSlug) ?? 0) + 1,
+            );
+          }
+
           return {
             staffId: b.id,
             name: b.name,
             locationSlug: b.locationSlug,
             locationName: locName,
             stamps7d: stamps.filter((e) => e.staffId === b.id && since(e.createdAt, t7)).length,
-            stamps30d: stamps.filter((e) => e.staffId === b.id && since(e.createdAt, t30)).length,
+            stamps30d: mine30d.length,
             redemptions30d: redemptions.filter((r) => r.staffId === b.id && since(r.createdAt, t30)).length,
+            byLocation: [...perLocation.entries()]
+              .map(([slug, stamps30d]) => ({
+                slug,
+                name: locations.find((l) => l.slug === slug)?.name ?? slug,
+                stamps30d,
+              }))
+              .sort((x, y) => y.stamps30d - x.stamps30d),
           };
         })
         .sort((a, b) => b.stamps30d - a.stamps30d);
@@ -1179,12 +1349,129 @@ function mapDbMember(row: any): Member {
   };
 }
 
-function mapDbStaff(row: any): StaffUser {
+/** The service-role client, after the adapter has proved it exists. */
+type DbClient = NonNullable<typeof supabaseClient>;
+
+/** Every cafenea one person holds a code for, sorted. */
+async function locationsForStaff(
+  client: DbClient,
+  staffId: string,
+): Promise<string[]> {
+  const { data } = await client
+    .from("staff_pins")
+    .select("location_slug")
+    .eq("staff_id", staffId);
+  return (data ?? [])
+    .map((row: { location_slug: string }) => row.location_slug)
+    .sort();
+}
+
+/** The same thing for the whole team, in one read instead of N. */
+async function staffLocationIndex(
+  client: DbClient,
+): Promise<Map<string, string[]>> {
+  const index = new Map<string, string[]>();
+  const { data, error } = await client
+    .from("staff_pins")
+    .select("staff_id, location_slug");
+  if (error) {
+    console.error("[supabase] staff_pins read error:", error);
+    return index;
+  }
+  for (const row of data ?? []) {
+    const slugs = index.get(row.staff_id) ?? [];
+    slugs.push(row.location_slug);
+    index.set(row.staff_id, slugs);
+  }
+  for (const slugs of index.values()) slugs.sort();
+  return index;
+}
+
+/**
+ * Only a real staff_users row has a uuid; the shared accounts are synthesised
+ * on the fly with ids like "shared-era-manager".
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | null | undefined): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+/** One raw staff_users row, or null. */
+async function staffRow(client: DbClient, id: string): Promise<any | null> {
+  const { data } = await client
+    .from("staff_users")
+    .select("*")
+    .eq("id", id)
+    .single();
+  return data ?? null;
+}
+
+/**
+ * The hashes already answering at one cafenea, except this person's own.
+ *
+ * The stored hash is a deterministic HMAC, so "same code" means "same hash":
+ * collisions are detected without ever recovering a code.
+ */
+async function takenHashesAt(
+  client: DbClient,
+  locationSlug: string,
+  ignoreStaffId?: string,
+): Promise<Set<string>> {
+  let query = client
+    .from("staff_pins")
+    .select("staff_id, pin_hash")
+    .eq("location_slug", locationSlug);
+  if (ignoreStaffId) query = query.neq("staff_id", ignoreStaffId);
+  const { data } = await query;
+  return new Set(
+    (data ?? []).map((row: { pin_hash: string }) => row.pin_hash),
+  );
+}
+
+/** What a code request can come back as, besides the code itself. */
+type PinOutcome = string | "invalid" | "taken" | "exhausted";
+
+/**
+ * Settles on the code to store at one cafenea: the manager's, if it is four
+ * digits and free, otherwise a generated one that is.
+ *
+ * Nothing else may issue a code. Two people at one cafenea sharing a code
+ * means login returns whichever row it reads first — stamps credited to the
+ * wrong person, silently, with no error anywhere to notice.
+ */
+async function resolveNewPin(
+  client: DbClient,
+  locationSlug: string,
+  pin: string | undefined,
+  ignoreStaffId?: string,
+): Promise<PinOutcome> {
+  const taken = await takenHashesAt(client, locationSlug, ignoreStaffId);
+  const isTaken = (candidate: string) => taken.has(hashStaffPin(candidate));
+
+  if (pin === undefined) {
+    return generateStaffPin(isTaken) ?? "exhausted";
+  }
+  if (!/^\d{4}$/.test(pin)) return "invalid";
+  if (reservedPins().has(pin) || isTaken(pin)) return "taken";
+  return pin;
+}
+
+/**
+ * `locationSlugs` lives in staff_pins, a second table, so callers that read
+ * it pass it in. The fallback is the home cafenea rather than an empty list:
+ * a caller that never looked at staff_pins should read like the old
+ * single-cafenea world, not like somebody locked out everywhere.
+ */
+function mapDbStaff(row: any, locationSlugs?: string[]): StaffUser {
   return {
     id: row.id,
     name: row.name,
     role: row.role,
     locationSlug: row.location_slug,
+    locationSlugs:
+      locationSlugs ?? (row.location_slug ? [row.location_slug] : []),
     active: row.active,
     shared: row.shared,
   };

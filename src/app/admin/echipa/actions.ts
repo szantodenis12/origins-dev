@@ -13,10 +13,16 @@ import { readStaffSession } from "@/lib/admin/session";
  *
  * Every mutation lands in the Jurnal (lib/admin/audit.ts) — the manager code
  * is shared, so the log is the only answer to "cine a dat cod nou". Summaries
- * carry names only, never a code.
+ * carry names and cafenele only, never a code.
  */
 
-export type TeamOp = "redenumeste" | "cod" | "activ" | "inactiv";
+export type TeamOp =
+  | "redenumeste"
+  | "cod"
+  | "activ"
+  | "inactiv"
+  | "acces-adauga"
+  | "acces-scoate";
 
 /**
  * Same shape as the meniu SaveState, plus which operation produced it: the
@@ -37,12 +43,16 @@ const strings = {
   personMissing: "Persoana nu mai există. Reîncarcă pagina.",
   badOp: "Acțiune necunoscută. Reîncarcă pagina.",
   renamed: "Nume salvat.",
+  badPin: "Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).",
+  // Deliberately does not say whose code it collides with: that would hand
+  // one person another person's code.
+  pinTaken:
+    "Codul e deja folosit la cafeneaua asta sau e rezervat. Alege altul.",
   // Mirrors the add-café wording: the code exists only in this notice.
-  created: (pin: string) =>
-    `Persoană adăugată. Codul (se afișează o singură dată): ${pin}. Notează-l acum.`,
-  newPin: (pin: string) =>
-    `Cod nou (se afișează o singură dată): ${pin}. Notează-l acum. Cel vechi nu mai funcționează.`,
-  pinFailed: "Codul nu a putut fi schimbat. Mai încearcă.",
+  created: (pin: string, cafenea: string) =>
+    `Persoană adăugată. Codul pentru ${cafenea} (se afișează o singură dată): ${pin}. Notează-l acum.`,
+  newPin: (pin: string, cafenea: string) =>
+    `Cod nou pentru ${cafenea} (se afișează o singură dată): ${pin}. Notează-l acum. Cel vechi nu mai funcționează.`,
   sharedAccount:
     "Contul comun folosește codul din setările serverului. Se schimbă de acolo, nu de aici.",
   deactivated:
@@ -51,6 +61,18 @@ const strings = {
   ownAccount: "Nu poți dezactiva contul cu care ești în tură acum.",
   ownSharedAccount:
     "Ești în tură chiar pe contul comun. Intră cu un cod personal de manager, apoi oprește-l de acolo.",
+  /* --- access at more than one cafenea --- */
+  accessAdded: (pin: string, cafenea: string) =>
+    `Poate intra în tură la ${cafenea}. Codul de acolo (se afișează o singură dată): ${pin}. Notează-l acum.`,
+  accessExists:
+    "Are deja cod la cafeneaua asta. Folosește Cod nou dacă vrei să-l schimbi.",
+  accessMissing:
+    "Nu are cod la cafeneaua asta. Dă-i întâi acces, de la Adaugă cafenea.",
+  accessRemoved: (cafenea: string) =>
+    `Nu mai poate intra în tură la ${cafenea}. Codurile de la celelalte cafenele rămân valabile.`,
+  // Saying it out loud beats leaving a row that looks normal and never works.
+  accessRemovedLast: (cafenea: string) =>
+    `Nu mai poate intra în tură la ${cafenea} și nu mai are cod nicăieri. Dă-i acces la o cafenea ca să poată lucra.`,
 };
 
 function fail(text: string): TeamSaveState {
@@ -76,6 +98,12 @@ async function locationName(slug: string): Promise<string> {
   return (await getDb().getLocationBySlug(slug))?.name ?? slug;
 }
 
+/** An empty field means "generate one"; anything else is the manager's. */
+function typedPin(formData: FormData): string | undefined {
+  const pin = String(formData.get("pin") ?? "").trim();
+  return pin.length > 0 ? pin : undefined;
+}
+
 export async function createStaffAction(
   _prev: TeamSaveState,
   formData: FormData,
@@ -86,20 +114,17 @@ export async function createStaffAction(
   const rol = String(formData.get("rol") ?? "");
   if (rol !== "barista" && rol !== "manager") return fail(strings.badRole);
 
-  const pin = String(formData.get("pin") ?? "").trim();
-  if (pin.length > 0 && !/^\d{4}$/.test(pin)) {
-    return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
-  }
-
   const result = await getDb().createStaff({
     name: String(formData.get("nume") ?? ""),
     locationSlug: String(formData.get("cafenea") ?? ""),
     role: rol as StaffRole,
-    pin: pin.length > 0 ? pin : undefined,
+    pin: typedPin(formData),
   });
 
   if (result.status === "invalid_name") return fail(strings.nameMissing);
   if (result.status === "unknown_location") return fail(strings.locationMissing);
+  if (result.status === "invalid_pin") return fail(strings.badPin);
+  if (result.status === "pin_taken") return fail(strings.pinTaken);
 
   const cafenea = await locationName(result.staff.locationSlug);
   await recordAdminAudit(auth.session, {
@@ -109,7 +134,7 @@ export async function createStaffAction(
   });
 
   revalidateTeam();
-  return { ok: true, text: strings.created(result.pin), op: "adauga" };
+  return { ok: true, text: strings.created(result.pin, cafenea), op: "adauga" };
 }
 
 export async function updateStaffAction(
@@ -139,25 +164,96 @@ export async function updateStaffAction(
     return { ok: true, text: strings.renamed, op };
   }
 
+  // Codes are per cafenea, so every code operation carries the cafenea it is
+  // about. Without it the call would quietly land on the home cafenea and
+  // reset a code the manager never meant to touch.
   if (op === "cod") {
-    const pin = String(formData.get("pin") ?? "").trim();
-    if (pin.length > 0 && !/^\d{4}$/.test(pin)) {
-      return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
-    }
+    const locationSlug = String(formData.get("cafenea") ?? "");
+    if (!locationSlug) return fail(strings.locationMissing);
 
-    const result = await db.setStaffPin(id, pin.length > 0 ? pin : undefined);
+    const result = await db.setStaffPin(id, locationSlug, typedPin(formData));
     if (result.status === "not_found") return fail(strings.personMissing);
     if (result.status === "shared_account") return fail(strings.sharedAccount);
-    if (result.status === "invalid_pin") return fail("Codul de acces trebuie să conțină exact 4 cifre (ex: 1234).");
-    if (result.status !== "set") return fail(strings.pinFailed);
+    if (result.status === "invalid_pin") return fail(strings.badPin);
+    if (result.status === "pin_taken") return fail(strings.pinTaken);
+    if (result.status === "no_access") return fail(strings.accessMissing);
+
+    const cafenea = await locationName(result.locationSlug);
     // The code itself never touches the Jurnal — only that it changed.
     await recordAdminAudit(auth.session, {
       action: "echipa.cod-nou",
       target: id,
-      summary: `A generat/setat cod nou pentru ${result.staff.name}.`,
+      summary: `A generat cod nou pentru ${result.staff.name} la ${cafenea}.`,
+      details: { locationSlug: result.locationSlug },
     });
     revalidateTeam();
-    return { ok: true, text: strings.newPin(result.pin), op };
+    return { ok: true, text: strings.newPin(result.pin, cafenea), op };
+  }
+
+  if (op === "acces-adauga") {
+    const locationSlug = String(formData.get("cafenea") ?? "");
+    if (!locationSlug) return fail(strings.locationMissing);
+
+    const result = await db.grantStaffLocation(
+      id,
+      locationSlug,
+      typedPin(formData),
+    );
+    if (result.status === "not_found") return fail(strings.personMissing);
+    if (result.status === "shared_account") return fail(strings.sharedAccount);
+    if (result.status === "unknown_location") {
+      return fail(strings.locationMissing);
+    }
+    if (result.status === "already_granted") return fail(strings.accessExists);
+    if (result.status === "invalid_pin") return fail(strings.badPin);
+    if (result.status === "pin_taken") return fail(strings.pinTaken);
+
+    const cafenea = await locationName(result.locationSlug);
+    await recordAdminAudit(auth.session, {
+      action: "echipa.acces-adaugat",
+      target: id,
+      summary: `I-a dat lui ${result.staff.name} acces la ${cafenea}.`,
+      details: { locationSlug: result.locationSlug },
+    });
+    revalidateTeam();
+    return { ok: true, text: strings.accessAdded(result.pin, cafenea), op };
+  }
+
+  if (op === "acces-scoate") {
+    const locationSlug = String(formData.get("cafenea") ?? "");
+    if (!locationSlug) return fail(strings.locationMissing);
+
+    // Taking your own access away at the cafenea you are standing in ends
+    // your own shift on the next request — the same trap `inactiv` guards
+    // against, one step sideways.
+    if (
+      auth.session.staffId === id &&
+      auth.session.locationSlug === locationSlug
+    ) {
+      return fail(strings.ownAccount);
+    }
+
+    const result = await db.revokeStaffLocation(id, locationSlug);
+    if (result.status === "not_found") return fail(strings.personMissing);
+    if (result.status === "shared_account") return fail(strings.sharedAccount);
+    if (result.status === "no_access") return fail(strings.accessMissing);
+
+    const cafenea = await locationName(result.locationSlug);
+    await recordAdminAudit(auth.session, {
+      action: "echipa.acces-scos",
+      target: id,
+      summary: `I-a scos lui ${result.staff.name} accesul la ${cafenea}.`,
+      details: { locationSlug: result.locationSlug },
+    });
+    revalidateTeam();
+    return {
+      ok: true,
+      text:
+        result.staff.locationSlugs.length === 0
+          ? strings.accessRemovedLast(cafenea)
+          : strings.accessRemoved(cafenea),
+      op,
+    };
   }
 
   if (op === "activ" || op === "inactiv") {

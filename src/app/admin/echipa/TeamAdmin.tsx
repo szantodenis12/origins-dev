@@ -54,6 +54,22 @@ const strings = {
   newCode: "Cod nou",
   deactivate: "Dezactivează",
   reactivate: "Reactivează",
+  /* --- access at more than one cafenea --- */
+  access: "Coduri și cafenele",
+  accessIntro:
+    "Un cod separat pentru fiecare cafenea. Lasă câmpul gol și îl generăm noi.",
+  accessNone:
+    "Nu are cod la nicio cafenea, deci nu poate intra în tură nicăieri.",
+  accessHome: "cafeneaua lui",
+  addCafe: "Dă acces la încă o cafenea",
+  grant: "Dă acces",
+  revoke: "Scoate accesul",
+  setCode: "Setează",
+  codePlaceholder: "Cod nou (4 cifre)",
+  codePlaceholderOptional: "4 cifre (gol = generat)",
+  allCafes: "Are cod la toate cafenelele.",
+  worksAt: "Intră în tură la:",
+  visitors: "Mai pot intra în tură aici:",
 };
 
 const ROLE_LABELS: Record<StaffRole, string> = {
@@ -74,15 +90,39 @@ export interface TeamMember {
   shared: boolean;
   /** null = no scan row for this person (managers, shared demo accounts). */
   stamps30d: number | null;
+  /** Their home cafenea — the group they are listed under. */
+  locationSlug: string;
+  /**
+   * Every cafenea this person holds a code for. The group they are listed
+   * under is their home cafenea, which says nothing about where they can
+   * actually start a shift — this does.
+   */
+  locationSlugs: string[];
+  /** Their 30-day scanning, split by the cafenea it happened at. */
+  stampsByLocation: { slug: string; name: string; stamps30d: number }[];
 }
 
 export interface TeamGroup {
   slug: string;
   name: string;
   members: TeamMember[];
+  /** People from other cafenele who hold a code for this one. */
+  visitors: { name: string; from: string }[];
 }
 
-export default function TeamAdmin({ groups }: { groups: TeamGroup[] }) {
+/** Every cafenea a code can be issued for, coming-soon ones included. */
+export interface TeamLocation {
+  slug: string;
+  name: string;
+}
+
+export default function TeamAdmin({
+  groups,
+  locations,
+}: {
+  groups: TeamGroup[];
+  locations: TeamLocation[];
+}) {
   const [adding, setAdding] = useState(false);
 
   return (
@@ -112,19 +152,38 @@ export default function TeamAdmin({ groups }: { groups: TeamGroup[] }) {
 
       {adding && <NewStaffForm groups={groups} />}
 
-      {/* A cafenea with nobody yet still appears in the add form's select. */}
-      {groups.filter((group) => group.members.length > 0).map((group) => (
-        <section key={group.slug} className="mt-7">
-          <h2 className="text-[11px] font-bold tracking-[0.18em] text-sage-deep uppercase">
-            {group.name}
-          </h2>
-          <div className="mt-1.5 rounded-card border border-line">
-            {group.members.map((member, index) => (
-              <StaffRow key={member.id} member={member} first={index === 0} />
-            ))}
-          </div>
-        </section>
-      ))}
+      {/* A cafenea with nobody yet still appears in the add form's select.
+          It does get a section once somebody can work there, even if that
+          somebody is filed at another cafenea. */}
+      {groups
+        .filter(
+          (group) => group.members.length > 0 || group.visitors.length > 0,
+        )
+        .map((group) => (
+          <section key={group.slug} className="mt-7">
+            <h2 className="text-[11px] font-bold tracking-[0.18em] text-sage-deep uppercase">
+              {group.name}
+            </h2>
+            <div className="mt-1.5 rounded-card border border-line">
+              {group.members.map((member, index) => (
+                <StaffRow
+                  key={member.id}
+                  member={member}
+                  locations={locations}
+                  first={index === 0}
+                />
+              ))}
+            </div>
+            {group.visitors.length > 0 && (
+              <p className="mt-2 text-[11.5px] leading-[1.45] text-muted">
+                {strings.visitors}{" "}
+                {group.visitors
+                  .map((person) => `${person.name} (de la ${person.from})`)
+                  .join(" · ")}
+              </p>
+            )}
+          </section>
+        ))}
     </div>
   );
 }
@@ -194,7 +253,9 @@ function NewStaffForm({ groups }: { groups: TeamGroup[] }) {
         required
         className={`mt-1.5 ${fieldClass}`}
       />
-      <p className={hintClass}>Codul de 4 cifre cu care persoana intră în tură.</p>
+      <p className={hintClass}>
+        Codul de 4 cifre cu care persoana intră în tură.
+      </p>
 
       <button
         type="submit"
@@ -214,21 +275,38 @@ function NewStaffForm({ groups }: { groups: TeamGroup[] }) {
   );
 }
 
-function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
-  // One state per row: the three small forms share the same dispatch, so the
-  // last result (rename, code, activity) is the one shown under the row.
+function StaffRow({
+  member,
+  locations,
+  first,
+}: {
+  member: TeamMember;
+  locations: TeamLocation[];
+  first: boolean;
+}) {
+  // One state per row: the small forms share the same dispatch, so the last
+  // result (rename, code, access, activity) is the one shown under the row.
   const [state, formAction, pending] = useActionState(updateStaffAction, null);
   const [editing, setEditing] = useState(false);
-  const [editingPin, setEditingPin] = useState(false);
+  const [managing, setManaging] = useState(false);
   const fieldId = useId();
 
-  // Close the inline forms only when an operation actually saved.
+  // Close the inline rename only when a rename actually saved. The access
+  // panel stays open through its own saves: the one-time code is printed in
+  // the notice under it, and closing the panel would take the notice with it.
   const [handled, setHandled] = useState<TeamSaveState>(null);
   if (state !== handled) {
     setHandled(state);
     if (state?.ok && state.op === "redenumeste") setEditing(false);
-    if (state?.ok && state.op === "cod") setEditingPin(false);
   }
+
+  const cafes = locations.filter((l) => member.locationSlugs.includes(l.slug));
+  const missing = locations.filter(
+    (l) => !member.locationSlugs.includes(l.slug),
+  );
+  const stampsAt = new Map(
+    member.stampsByLocation.map((entry) => [entry.slug, entry.stamps30d]),
+  );
 
   return (
     <div className={`px-4 py-3.5 ${first ? "" : "border-t border-line"}`}>
@@ -256,6 +334,16 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
               </span>
             )}
           </div>
+          {/* Only worth a line when it is news: someone who covers shifts
+              elsewhere, or someone who cannot start one anywhere. The common
+              case — one code, at their own cafenea — stays quiet. */}
+          {!member.shared && cafes.length !== 1 && (
+            <div className="mt-1 text-[11.5px] leading-[1.45] text-muted">
+              {cafes.length === 0
+                ? strings.accessNone
+                : `${strings.worksAt} ${cafes.map((c) => c.name).join(" · ")}`}
+            </div>
+          )}
         </div>
         {member.stamps30d !== null && (
           <div className="shrink-0 text-right tabular-nums">
@@ -298,34 +386,142 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
         </form>
       )}
 
-      {editingPin && (
-        <form action={formAction} className="mt-2.5 flex items-center gap-2">
-          <input type="hidden" name="staffId" value={member.id} />
-          <input type="hidden" name="op" value="cod" />
-          <input
-            id={`${fieldId}-pin`}
-            name="pin"
-            type="text"
-            inputMode="numeric"
-            maxLength={4}
-            autoComplete="off"
-            placeholder="Cod nou (4 cifre)"
-            required
-            aria-label="Cod nou"
-            className={fieldClass}
-          />
-          <button
-            type="submit"
-            disabled={pending}
-            className="flex h-[42px] shrink-0 items-center justify-center rounded-btn bg-ink px-3 text-[13px] font-semibold text-paper disabled:opacity-45"
-          >
-            {pending ? (
-              <Loader2 className="size-[16px] animate-spin" strokeWidth={2} />
-            ) : (
-              "Setează"
-            )}
-          </button>
-        </form>
+      {managing && (
+        <div className="mt-2.5 rounded-card border border-line p-3">
+          <p className={hintClass}>{strings.accessIntro}</p>
+
+          {cafes.length === 0 && (
+            <p className="mt-2 text-[12px] leading-[1.45] text-muted">
+              {strings.accessNone}
+            </p>
+          )}
+
+          {cafes.map((cafe) => (
+            <div key={cafe.slug} className="mt-3 border-t border-line pt-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-[13px] font-semibold">
+                  {cafe.name}
+                  {cafe.slug === member.locationSlug && (
+                    <span className="ml-1.5 text-[11px] font-normal text-muted">
+                      ({strings.accessHome})
+                    </span>
+                  )}
+                </div>
+                {/* Scanning at THIS cafenea, next to the code that opens it:
+                    a covered shift reads as its own line instead of
+                    disappearing into the home cafenea total. */}
+                <div className="shrink-0 text-[11px] text-muted tabular-nums">
+                  {stampsAt.get(cafe.slug) ?? 0} {strings.stampsLabel}
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2">
+                <form action={formAction} className="flex flex-1 gap-2">
+                  <input type="hidden" name="staffId" value={member.id} />
+                  <input type="hidden" name="op" value="cod" />
+                  <input type="hidden" name="cafenea" value={cafe.slug} />
+                  <input
+                    name="pin"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    autoComplete="off"
+                    placeholder={strings.codePlaceholderOptional}
+                    aria-label={`${strings.newCode} ${cafe.name}`}
+                    className={fieldClass}
+                  />
+                  <button
+                    type="submit"
+                    disabled={pending}
+                    className="flex h-[42px] shrink-0 items-center justify-center rounded-btn bg-ink px-3 text-[13px] font-semibold text-paper disabled:opacity-45"
+                  >
+                    {pending ? (
+                      <Loader2
+                        className="size-[16px] animate-spin"
+                        strokeWidth={2}
+                      />
+                    ) : (
+                      strings.setCode
+                    )}
+                  </button>
+                </form>
+
+                <form action={formAction}>
+                  <input type="hidden" name="staffId" value={member.id} />
+                  <input type="hidden" name="op" value="acces-scoate" />
+                  <input type="hidden" name="cafenea" value={cafe.slug} />
+                  <button
+                    type="submit"
+                    disabled={pending}
+                    aria-label={`${strings.revoke} ${cafe.name}`}
+                    title={strings.revoke}
+                    className="flex size-[42px] shrink-0 items-center justify-center rounded-btn border border-line text-muted disabled:opacity-45"
+                  >
+                    <X className="size-[16px]" strokeWidth={2} />
+                  </button>
+                </form>
+              </div>
+            </div>
+          ))}
+
+          {missing.length > 0 ? (
+            <form
+              action={formAction}
+              className="mt-3 border-t border-line pt-3"
+            >
+              <input type="hidden" name="staffId" value={member.id} />
+              <input type="hidden" name="op" value="acces-adauga" />
+              <label
+                className={labelClass}
+                htmlFor={`${fieldId}-acces-cafenea`}
+              >
+                {strings.addCafe}
+              </label>
+              <select
+                id={`${fieldId}-acces-cafenea`}
+                name="cafenea"
+                defaultValue={missing[0]?.slug}
+                className={`mt-1.5 appearance-none ${fieldClass}`}
+              >
+                {missing.map((cafe) => (
+                  <option key={cafe.slug} value={cafe.slug}>
+                    {cafe.name}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  name="pin"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  autoComplete="off"
+                  placeholder={strings.codePlaceholderOptional}
+                  aria-label={strings.codePlaceholder}
+                  className={fieldClass}
+                />
+                <button
+                  type="submit"
+                  disabled={pending}
+                  className="flex h-[42px] shrink-0 items-center justify-center rounded-btn bg-ink px-3 text-[13px] font-semibold text-paper disabled:opacity-45"
+                >
+                  {pending ? (
+                    <Loader2
+                      className="size-[16px] animate-spin"
+                      strokeWidth={2}
+                    />
+                  ) : (
+                    strings.grant
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <p className="mt-3 border-t border-line pt-3 text-[12px] text-muted">
+              {strings.allCafes}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-2.5 flex flex-wrap gap-2">
@@ -333,7 +529,7 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
           type="button"
           onClick={() => {
             setEditing((value) => !value);
-            setEditingPin(false);
+            setManaging(false);
           }}
           className={rowButton}
         >
@@ -349,12 +545,12 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
           <button
             type="button"
             onClick={() => {
-              setEditingPin((val) => !val);
+              setManaging((val) => !val);
               setEditing(false);
             }}
             className={rowButton}
           >
-            {editingPin ? (
+            {managing ? (
               <X className="size-[13px] text-muted" strokeWidth={2} />
             ) : (
               <KeyRound
@@ -362,7 +558,7 @@ function StaffRow({ member, first }: { member: TeamMember; first: boolean }) {
                 strokeWidth={2.25}
               />
             )}
-            {editingPin ? strings.cancel : "Resetare cod"}
+            {managing ? strings.cancel : strings.access}
           </button>
         )}
 

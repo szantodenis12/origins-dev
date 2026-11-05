@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { LogIn, TriangleAlert } from "lucide-react";
+import LocationSelect from "@/components/admin/LocationSelect";
 import PhoneFrame from "@/components/PhoneFrame";
 import { readStaffSession, staffLocations } from "@/lib/admin/session";
 import { loginAction } from "./actions";
@@ -15,7 +16,11 @@ const strings = {
   location: "Cafeneaua",
   pin: "Cod de acces",
   submit: "Intră",
-  errorPin: "Cod greșit. Mai încearcă o dată.",
+  // A personal code only opens the cafenea it was issued for, so the first
+  // thing to check is the cafenea, not the fingers. Saying only "cod greșit"
+  // sends people to retype a code that was right all along.
+  errorPin:
+    "Codul nu e valid pentru cafeneaua aleasă. Verifică întâi cafeneaua, apoi codul.",
   errorLocation: "Alege o cafenea din listă.",
   note: "Codul este valabil pentru tura curentă. Contul cu email și parolă vine odată cu Supabase.",
 };
@@ -82,18 +87,10 @@ export default async function AdminLoginPage({
           <label className={labelClass} htmlFor="locationSlug">
             {strings.location}
           </label>
-          <select
-            id="locationSlug"
-            name="locationSlug"
-            defaultValue={locations[0]?.slug}
+          <LocationSelect
+            locations={locations.map(({ slug, name }) => ({ slug, name }))}
             className={`mt-1.5 appearance-none ${fieldClass}`}
-          >
-            {locations.map((location) => (
-              <option key={location.slug} value={location.slug}>
-                {location.name}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         <div>
