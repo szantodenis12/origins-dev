@@ -222,6 +222,34 @@ export function Stagger({
   );
 }
 
+/**
+ * In-page jumps, pressed more than once.
+ *
+ * `<Link>` compares the destination with the current URL and, when they
+ * match, does nothing at all — so the second press of "Calendar", after
+ * the reader has scrolled back up, left them where they were. A plain
+ * anchor re-scrolls every time; this gives that back without losing the
+ * client-side navigation for the pages that really are elsewhere.
+ *
+ * The anchor being on this page is the whole test: if it is not here, the
+ * router is right to navigate. Scrolling is left to `scroll-behavior` in
+ * the stylesheet, which already stands down under reduced motion.
+ */
+function jumpWithin(event: React.MouseEvent<HTMLAnchorElement>, href: string): void {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+    return;
+  }
+  const hash = href.split("#")[1];
+  if (!hash) return;
+  const target = document.getElementById(hash);
+  if (!target) return;
+  event.preventDefault();
+  target.scrollIntoView();
+  // The address stays shareable, without pushing a history entry for a
+  // jump the reader can undo by scrolling.
+  window.history.replaceState(null, "", `#${hash}`);
+}
+
 const LANGS: Lang[] = ["ro", "hu", "en"];
 
 /** The anchor and label of the phase section ("Cum particip" / "Ce urmează" / "Rezultate"). */
@@ -286,6 +314,7 @@ export function ContestHeader({
             <Link
               key={item.href}
               href={item.href}
+              onClick={(event) => jumpWithin(event, item.href)}
               aria-current={item.on ? "page" : undefined}
               className={`rounded-full px-4 py-2 transition-colors ${FOCUS} ${
                 item.on ? "bg-o-ink text-white" : "text-o-ink/75 hover:text-o-ink"
@@ -335,6 +364,7 @@ export function ContestHeader({
               <li key={item.href} className="shrink-0">
                 <Link
                   href={item.href}
+                  onClick={(event) => jumpWithin(event, item.href)}
                   aria-current={item.on ? "page" : undefined}
                   className={`flex min-h-[44px] items-center rounded-full px-3.5 ${FOCUS} ${
                     item.on ? "text-o-ink underline underline-offset-4" : "text-o-ink/75"
