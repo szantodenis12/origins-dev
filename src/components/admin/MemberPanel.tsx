@@ -19,10 +19,15 @@ import {
   QrCode,
   RotateCcw,
   Stamp,
+  UserRound,
   UserX,
 } from "lucide-react";
 import StampRow from "@/components/StampRow";
-import type { MemberPanel as Panel, PanelNotice } from "@/lib/admin/panel";
+import type {
+  CardQr,
+  MemberPanel as Panel,
+  PanelNotice,
+} from "@/lib/admin/panel";
 import {
   formatBucharestDate,
   formatBucharestDateTime,
@@ -62,6 +67,9 @@ const strings = {
   reset: "Scanează alt card",
   total: (count: number) => `${count} ștampile de la înscriere`,
   openCard: "Deschide cardul web",
+  showQr: "Arată codul pentru client",
+  hideQr: "Ascunde codul",
+  qrHint: "Scanat cu camera, codul deschide cardul pe telefonul clientului.",
   // Blocat de manager (Db.setMemberBlocked) — nu fereastra de 2 ore.
   blockedLine: (date: string) =>
     `Card blocat din ${date}. Nu primește ștampile și nu predă recompense.`,
@@ -106,6 +114,7 @@ export default function MemberPanel({
   onWithdrawMarketing,
   onForget,
   onReset,
+  onCardQr,
 }: {
   panel: Panel;
   notice: PanelNotice | null;
@@ -121,6 +130,8 @@ export default function MemberPanel({
   onWithdrawMarketing: () => void;
   onForget: () => void;
   onReset: () => void;
+  /** Builds the member's card QR on the server; null when it failed. */
+  onCardQr: () => Promise<CardQr | null>;
 }) {
   // The server decides what the stamp is worth; the button only mirrors it.
   const double = panel.doubleStamp;
@@ -137,6 +148,34 @@ export default function MemberPanel({
   // action, or the press itself, drops the armed state.
   const [confirming, setConfirming] = useState<Confirming | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // The card QR is fetched the first time it is asked for, then kept while
+  // this member is on screen — a barista opening and closing it does not
+  // rebuild it. Closing the panel drops it with the component.
+  const [cardQr, setCardQr] = useState<CardQr | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrPending, setQrPending] = useState(false);
+
+  const toggleQr = async () => {
+    if (qrOpen) {
+      setQrOpen(false);
+      return;
+    }
+    if (cardQr) {
+      setQrOpen(true);
+      return;
+    }
+    setQrPending(true);
+    try {
+      const qr = await onCardQr();
+      if (qr) {
+        setCardQr(qr);
+        setQrOpen(true);
+      }
+    } finally {
+      setQrPending(false);
+    }
+  };
 
   const act = (action: () => void) => {
     setConfirming(null);
@@ -178,6 +217,11 @@ export default function MemberPanel({
         >
           {notice.tone === "success" ? (
             <Check className="mt-px size-[18px] shrink-0" strokeWidth={3} />
+          ) : notice.icon === "person" ? (
+            <UserRound
+              className="mt-px size-[18px] shrink-0 text-muted"
+              strokeWidth={2}
+            />
           ) : (
             <Stamp
               className="mt-px size-[18px] shrink-0 text-muted"
@@ -221,7 +265,7 @@ export default function MemberPanel({
         )}
       </div>
 
-      <p className="mt-2 flex items-center gap-3 text-[12.5px] text-muted">
+      <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-muted">
         {panel.passSerial}
         {/* Spec §6.4: member lost the card link -> barista reopens it here. */}
         <a
@@ -233,7 +277,40 @@ export default function MemberPanel({
           <ExternalLink className="size-[13px]" strokeWidth={2.25} />
           {strings.openCard}
         </a>
+        {/*
+          ...and this is how it gets back to the member: opening the card on
+          the shop phone helps nobody, and nobody types a UUID off a counter.
+        */}
+        <button
+          type="button"
+          onClick={() => void toggleQr()}
+          disabled={qrPending}
+          className="inline-flex items-center gap-1 font-semibold text-sage-deep disabled:opacity-45"
+        >
+          {qrPending ? (
+            <Loader2 className="size-[13px] animate-spin" strokeWidth={2.25} />
+          ) : (
+            <QrCode className="size-[13px]" strokeWidth={2.25} />
+          )}
+          {qrOpen ? strings.hideQr : strings.showQr}
+        </button>
       </p>
+
+      {qrOpen && cardQr && (
+        <div className="mt-3 rounded-card border border-line bg-paper p-4">
+          <div
+            className="mx-auto w-[184px] [&_svg]:block [&_svg]:h-auto [&_svg]:w-full"
+            dangerouslySetInnerHTML={{ __html: cardQr.svg }}
+          />
+          <p className="mt-3 text-center text-[12.5px] leading-[1.45] font-semibold text-ink">
+            {strings.qrHint}
+          </p>
+          {/* Spelled out for the phone whose camera refuses to focus. */}
+          <p className="mt-1.5 text-center text-[11px] leading-[1.4] break-all text-muted">
+            {cardQr.url}
+          </p>
+        </div>
+      )}
 
       <section className="mt-4 rounded-card border-[1.5px] border-sage p-5">
         <StampRow filled={filled} total={panel.cycleLength} />

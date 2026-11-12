@@ -127,6 +127,45 @@ const sections = (config: LoyaltyConfig): LegalSection[] => [
       },
     ],
   },
+  // /desen links here as /regulament#desen. Placeholder until the lawyer
+  // signs off the contest rules; the real text replaces this one paragraph.
+  {
+    id: "desen",
+    heading: {
+      ro: "Concursul de desene 2026",
+      hu: "Rajzpályázat 2026",
+      en: "Drawing contest 2026",
+    },
+    body: [
+      {
+        ro: "Regulamentul concursului „Crăciunul, desenat de cei mici. Ediția I, 2026” se publică după validarea juridică.",
+        hu: "„A karácsony, ahogy a kicsik rajzolják. I. kiadás, 2026” pályázat szabályzata a jogi ellenőrzés után jelenik meg.",
+        en: "The rules of the 2026 drawing contest are published after legal review.",
+      },
+      // Calendar and public vote: fixed by the client on 10.11.2026
+      // (lib/drawing.ts CONTEST_CALENDAR, lib/drawing-vote.ts).
+      {
+        ro: "Desenele se primesc în cafenele între 16 noiembrie și 1 decembrie 2026. Cu acordul părintelui, fiecare desen apare în galeria online în cel mult 24 de ore de la depunere.",
+        hu: "A rajzokat 2026. november 16. és december 1. között várjuk a kávézókban. A szülő hozzájárulásával minden rajz a leadástól számított legfeljebb 24 órán belül megjelenik az online galériában.",
+        en: "Drawings are accepted in the cafés from 16 November to 1 December 2026. With the parent's consent, each drawing appears in the online gallery within 24 hours of being handed in.",
+      },
+      {
+        ro: "Pe paharele Origins ajung zece desene: șapte alese de juriu și trei alese prin vot public, câte unul pentru fiecare grupă de vârstă (3-5, 6-9 și 10-14 ani). Câștigătorii votului se stabilesc primii, iar juriul alege din celelalte desene. Anunțul se face pe 6 decembrie 2026.",
+        hu: "Az Origins poharakra tíz rajz kerül: hetet a zsűri választ, hármat a közönség szavazata, korcsoportonként egyet (3-5, 6-9 és 10-14 év). Először a közönségszavazás nyertesei dőlnek el, a zsűri a többi rajz közül választ. Az eredményhirdetés 2026. december 6-án lesz.",
+        en: "Ten drawings go on the Origins cups: seven chosen by the jury and three by public vote, one for each age group (3-5, 6-9 and 10-14). The vote winners are decided first, and the jury chooses from the other drawings. The announcement is on 6 December 2026.",
+      },
+      {
+        ro: "Un desen poate fi votat din momentul în care apare în galerie până pe 3 decembrie 2026, ora 23:59. Votul se confirmă cu un cod primit pe e-mail. Fiecare adresă de e-mail poate da un singur vot pentru un desen și poate vota mai multe desene.",
+        hu: "Egy rajzra attól a pillanattól lehet szavazni, hogy megjelenik a galériában, 2026. december 3-án 23:59-ig. A szavazatot e-mailben kapott kóddal kell megerősíteni. Egy e-mail-címről egy rajzra egy szavazat adható, de több rajzra is lehet szavazni.",
+        en: "A drawing can be voted for from the moment it appears in the gallery until 3 December 2026, 23:59. The vote is confirmed with a code received by e-mail. Each e-mail address can give one vote per drawing and can vote for several drawings.",
+      },
+      {
+        ro: "La fiecare grupă de vârstă câștigă desenul cu cele mai multe voturi pe zi, adică voturile primite împărțite la numărul de zile de când desenul e în galerie, ca desenele aduse mai târziu să aibă aceeași șansă. Numărul de voturi nu se afișează public.",
+        hu: "Minden korcsoportban az a rajz nyer, amelyik naponta átlagosan a legtöbb szavazatot kapta, vagyis a szavazatok számát elosztjuk a galériában töltött napok számával, hogy a később behozott rajzoknak is ugyanannyi esélyük legyen. A szavazatok száma nem nyilvános.",
+        en: "In each age group the winner is the drawing with the most votes per day, meaning the votes received divided by the number of days the drawing has been in the gallery, so that drawings brought in later have the same chance. Vote counts are not shown publicly.",
+      },
+    ],
+  },
   {
     heading: { ro: "Despre program", hu: "A programról", en: "About the program" },
     body: [

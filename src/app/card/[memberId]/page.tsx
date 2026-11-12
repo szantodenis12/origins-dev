@@ -9,7 +9,6 @@ import { doubleStampText } from "@/lib/program";
 import { birthdayCardLine } from "@/lib/program-copy";
 import { reviewUrlForMember } from "@/lib/review";
 import { reviewIntentAction } from "./actions";
-import { getGoogleWalletSaveUrl } from "@/lib/wallet/google";
 
 /**
  * The member's web card (faza 2.5). The unguessable memberId in the URL is
@@ -111,8 +110,6 @@ export default async function MemberCardPage({
           ? reviewIntentAction.bind(null, member.id)
           : null
       }
-      applePassUrl={`/api/v1/passes/${member.passSerial}`}
-      googleWalletUrl={getGoogleWalletSaveUrl(member, card)}
     />
   );
 }

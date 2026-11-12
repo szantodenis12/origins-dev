@@ -6,7 +6,8 @@ import { LangProvider } from "@/lib/i18n";
 const interTight = Inter_Tight({
   variable: "--font-inter-tight",
   subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "600", "700", "800"],
+  // 300 is the light second line of the contest headlines (/desene).
+  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
 // Editorial serif for menu headlines — same voice as the client presentation.
@@ -32,7 +33,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ro" className={`${interTight.variable} ${fraunces.variable} h-full`}>
+    <html
+      lang="ro"
+      className={`${interTight.variable} ${fraunces.variable} h-full`}
+    >
       <body className="min-h-full flex flex-col">
         <LangProvider>{children}</LangProvider>
       </body>

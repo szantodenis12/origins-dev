@@ -1,3 +1,5 @@
+import { createLocalImageStore } from "./local";
+
 /**
  * Ports and adapters again, same reasoning as `lib/db`: the menu editor talks
  * to `ImageStore`, never to a filesystem or a bucket.
@@ -38,20 +40,11 @@ export interface ImageStore {
   has(path: string): Promise<boolean>;
 }
 
-import { createLocalImageStore } from "./local.ts";
-import { createSupabaseImageStore } from "./supabase.ts";
-
 let store: ImageStore | null = null;
 
 /** The one place the image adapter is chosen. */
 export function getImageStore(): ImageStore {
-  if (
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    !process.env.NEXT_PUBLIC_SUPABASE_URL.includes("YOUR_PROJECT_ID")
-  ) {
-    store ??= createSupabaseImageStore();
-  } else {
-    store ??= createLocalImageStore();
-  }
+  // Phase 3: `if (process.env.NEXT_PUBLIC_SUPABASE_URL) return createSupabaseImageStore()`
+  store ??= createLocalImageStore();
   return store;
 }

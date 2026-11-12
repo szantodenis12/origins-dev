@@ -107,6 +107,16 @@ const sections: LegalSection[] = [
     ],
   },
   {
+    heading: { ro: "Cookie-uri", hu: "Sütik", en: "Cookies" },
+    body: [
+      {
+        ro: "Când îți deschizi cardul, păstrăm pe telefonul tău un cookie cu identificatorul cardului, ca să-l regăsești acolo data viitoare fără să ceri linkul la casă. Ține un an și se prelungește la fiecare vizită. Tot în browser rămâne și limba pe care o alegi. Nu folosim cookie-uri de publicitate și nu te urmărim pe alte site-uri.",
+        hu: "Amikor megnyitod a kártyád, a telefonodon marad egy süti a kártya azonosítójával, hogy legközelebb a kasszánál való kérdezés nélkül is megtaláld. Egy évig él, és minden látogatáskor megújul. A böngésződben marad a választott nyelv is. Hirdetési sütiket nem használunk, és más oldalakon nem követünk.",
+        en: "When you open your card, we keep a cookie with the card's identifier on your phone, so you can find it there next time without asking for the link at the counter. It lasts a year and is refreshed on every visit. Your chosen language stays in the browser too. We use no advertising cookies and we do not track you on other sites.",
+      },
+    ],
+  },
+  {
     heading: { ro: "Drepturile tale", hu: "A jogaid", en: "Your rights" },
     body: [
       {
@@ -123,6 +133,35 @@ const sections: LegalSection[] = [
         ro: "Ai dreptul să depui o plângere la ANSPDCP (dataprotection.ro).",
         hu: "Panaszt tehetsz a román adatvédelmi hatóságnál, az ANSPDCP-nél (dataprotection.ro).",
         en: "You have the right to lodge a complaint with the Romanian data protection authority, ANSPDCP (dataprotection.ro).",
+      },
+    ],
+  },
+  // /desen links here as /confidentialitate#desen. Placeholder until the
+  // lawyer signs off the contest notice; the real text replaces this.
+  {
+    id: "desen",
+    heading: {
+      ro: "Concursul de desene 2026",
+      hu: "Rajzpályázat 2026",
+      en: "Drawing contest 2026",
+    },
+    body: [
+      {
+        ro: "Nota de informare pentru concursul de desene se publică după validarea juridică.",
+        hu: "A rajzpályázat adatkezelési tájékoztatója a jogi ellenőrzés után jelenik meg.",
+        en: "The privacy notice for the drawing contest is published after legal review.",
+      },
+      // Online gallery + vote (10.11.2026). Mirrors what the code does:
+      // lib/drawing.ts PublicDrawing, lib/vote-hash.ts.
+      {
+        ro: "Galeria online: un desen apare pe internet doar cu acordul separat al părintelui, dat la înscriere. Lângă desen apar grupa de vârstă și codul desenului, iar prenumele și vârsta copilului doar dacă părintele a ales asta. Numele părintelui și telefonul nu apar. Părintele poate cere oricând retragerea desenului din galerie, la contact@originscafe.ro sau în oricare cafenea Origins.",
+        hu: "Online galéria: egy rajz csak a szülő külön, a regisztrációkor adott hozzájárulásával kerül fel az internetre. A rajz mellett a korcsoport és a rajz kódja jelenik meg, a gyerek keresztneve és életkora csak akkor, ha a szülő ezt választotta. A szülő neve és telefonszáma nem jelenik meg. A szülő bármikor kérheti a rajz eltávolítását a galériából a contact@originscafe.ro címen vagy a pultnál.",
+        en: "Online gallery: a drawing goes online only with the parent's separate consent, given at registration. Next to the drawing we show the age group and the drawing code, and the child's first name and age only if the parent chose that. The parent's name and phone number are not shown. The parent can ask at any time for the drawing to be removed from the gallery, at contact@originscafe.ro or at the counter.",
+      },
+      {
+        ro: "Votul: adresa de e-mail o folosim o singură dată, ca să trimitem codul de confirmare, printr-un furnizor de e-mail. Nu o păstrăm în platformă și nu o folosim pentru reclame. După vot rămâne doar o amprentă criptată a adresei, din care adresa nu poate fi citită și care ne arată doar că aceeași adresă nu votează de două ori același desen. Amprentele se șterg odată cu datele concursului, după 31 ianuarie 2027.",
+        hu: "Szavazás: az e-mail-címet egyetlen alkalommal használjuk, a megerősítő kód elküldéséhez, egy e-mail-szolgáltatón keresztül. A platformon nem őrizzük meg, és nem használjuk reklámra. A szavazat után csak a cím titkosított lenyomata marad meg, amelyből a cím nem olvasható ki, és amely csak azt mutatja, hogy ugyanarról a címről nem szavaznak kétszer ugyanarra a rajzra. A lenyomatokat a pályázat adataival együtt, 2027. január 31. után töröljük.",
+        en: "Voting: we use the e-mail address once, to send the confirmation code, through an e-mail provider. We do not keep it on the platform and we do not use it for marketing. After the vote only an encrypted fingerprint of the address remains; the address cannot be read from it, and it only shows that the same address does not vote twice for the same drawing. The fingerprints are deleted with the contest data, after 31 January 2027.",
       },
     ],
   },

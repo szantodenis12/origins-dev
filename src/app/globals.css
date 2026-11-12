@@ -13,6 +13,13 @@
   --color-open: #3fa25f;
   --color-star: #f5b942;
 
+  /* Public contest pages (/desene): white, ink, and Origins green as the
+     single accent (active pills, vote button hover). */
+  --color-o-ink: #121212;
+  --color-o-green: #1f4d3a;
+  /* The neutral "wall" behind a drawing: the sheets are white themselves. */
+  --color-o-wall: #f3f3f1;
+
   --font-sans: var(--font-inter-tight), sans-serif;
   --font-serif: var(--font-fraunces), Georgia, serif;
 

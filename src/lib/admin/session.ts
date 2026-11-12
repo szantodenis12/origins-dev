@@ -1,7 +1,8 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { campaignEnv, isCampaignRequest } from "../campaign-host";
 import { getDb } from "../db";
 import type { StaffRole, StaffSession } from "../db";
 import {
@@ -78,7 +79,21 @@ export async function staffLocations() {
   );
 }
 
+/**
+ * True when this request is on the campaign host. The Origins admin does
+ * not exist there, and the proxy alone cannot guarantee it: a server
+ * function's redirect renders its target without passing the proxy again.
+ * So the session itself refuses: no Origins staff session can be read or
+ * written on the campaign host, whatever route ended up being rendered.
+ */
+export async function onCampaignHost(): Promise<boolean> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host")?.split(",")[0]?.trim() || h.get("host");
+  return isCampaignRequest(host, campaignEnv());
+}
+
 export async function readStaffSession(): Promise<StaffSession | null> {
+  if (await onCampaignHost()) return null;
   const store = await cookies();
   const raw = store.get(STAFF_COOKIE)?.value;
   if (!raw) return null;
@@ -106,6 +121,7 @@ export async function readManagerSession(): Promise<StaffSession | null> {
 
 /** Only callable from a Server Function or Route Handler. */
 export async function writeStaffSession(session: StaffSession): Promise<void> {
+  if (await onCampaignHost()) return;
   const store = await cookies();
   store.set(STAFF_COOKIE, sealStaffSession(session, sessionSecret()), {
     httpOnly: true,

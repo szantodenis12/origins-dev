@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { LogOut, MapPin } from "lucide-react";
 import { logoutAction } from "@/app/admin/actions";
+import { campaignConfigured, campaignEnv } from "@/lib/campaign-host";
 import type { StaffRole } from "@/lib/db";
 import ManagerNav from "./ManagerNav";
 
@@ -44,7 +45,7 @@ export default function AdminBar({
         </button>
       </form>
     </header>
-    {role === "manager" && <ManagerNav />}
+    <ManagerNav role={role} drawings={!campaignConfigured(campaignEnv())} />
     </>
   );
 }

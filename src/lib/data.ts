@@ -53,7 +53,7 @@ export const locations: Location[] = [
   {
     slug: "oraselul",
     name: "Orășelul Copiilor",
-    address: { ro: "Calea Corneliu Coposu 8, Oradea", hu: "Calea Corneliu Coposu 8, Nagyvárad" },
+    address: { ro: "Strada Episcop Ioan Suciu 7, Oradea", hu: "Strada Episcop Ioan Suciu 7, Nagyvárad" },
     // Client, 08.08.2026: the park kiosk runs a different clock each month.
     // March-June not given yet → null, so those months show nothing instead of
     // a guessed schedule.

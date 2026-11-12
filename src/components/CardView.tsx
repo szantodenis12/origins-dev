@@ -2,7 +2,13 @@
 
 import { useActionState, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, CreditCard, Loader2, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  CreditCard,
+  Loader2,
+  TriangleAlert,
+} from "lucide-react";
 import { signupAction, type SignupState } from "@/app/card/actions";
 import { ageOn, PARENTAL_CONSENT_AGE } from "@/lib/age";
 import { tx, ui, useLang } from "@/lib/i18n";
@@ -102,11 +108,24 @@ function BirthSelect({
   );
 }
 
+/** "Ana Popescu, cardul tău e salvat pe telefonul ăsta." */
+function returningLine(name: string, lang: Lang): string {
+  if (lang === "hu") return `${name}, a kártyád el van mentve ezen a telefonon.`;
+  if (lang === "en") return `${name}, your card is saved on this phone.`;
+  return `${name}, cardul tău e salvat pe telefonul ăsta.`;
+}
+
 export default function CardView({
   student = false,
+  returning,
   loyalty,
 }: {
   student?: boolean;
+  /**
+   * The card this browser already opened, resolved on the server. Null on
+   * a device that has never held one — the ordinary signup.
+   */
+  returning: { memberId: string; name: string } | null;
   /** Program copy + numbers, generated on the server from the settings. */
   loyalty: {
     summary: I18nText;
@@ -183,18 +202,44 @@ export default function CardView({
         <p className="text-[13.5px] text-ink/72">{tx(loyalty.summary, lang)}</p>
       </div>
 
-      <section className="mx-5 mt-3.5 mb-2.5 rounded-card border-[1.5px] border-sage p-5">
-        <StampRow
-          filled={0}
-          total={loyalty.cycleLength}
-          bonusAt={loyalty.midRewardAt}
-        />
-        {loyalty.doubleStampText && (
-          <p className="text-center text-[12.5px] font-semibold text-sage-deep">
-            {tx(loyalty.doubleStampText, lang)}
+      {/*
+        Coming back beats signing up: the member wanted their stamps, not a
+        form. The empty preview card stands down while this shows — a row of
+        zero stamps over "ai deja un card" reads like the stamps are gone.
+      */}
+      {returning ? (
+        <section className="mx-5 mt-3.5 mb-2.5 rounded-card bg-cream p-5">
+          <h2 className="text-[17px] leading-[1.2] font-extrabold tracking-[-0.01em]">
+            {tx(ui.cardReturningTitle, lang)}
+          </h2>
+          <p className="mt-1.5 text-[13.5px] leading-[1.45] text-ink/72">
+            {returningLine(returning.name, lang)}
           </p>
-        )}
-      </section>
+          <Link
+            href={`/card/${returning.memberId}`}
+            className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-btn bg-ink p-[15px] text-[15px] font-semibold text-paper"
+          >
+            <ArrowRight className="size-[18px]" strokeWidth={2} />
+            {tx(ui.cardReturningOpen, lang)}
+          </Link>
+          <p className="mt-3 text-[12.5px] leading-[1.45] text-muted">
+            {tx(ui.cardReturningOther, lang)}
+          </p>
+        </section>
+      ) : (
+        <section className="mx-5 mt-3.5 mb-2.5 rounded-card border-[1.5px] border-sage p-5">
+          <StampRow
+            filled={0}
+            total={loyalty.cycleLength}
+            bonusAt={loyalty.midRewardAt}
+          />
+          {loyalty.doubleStampText && (
+            <p className="text-center text-[12.5px] font-semibold text-sage-deep">
+              {tx(loyalty.doubleStampText, lang)}
+            </p>
+          )}
+        </section>
+      )}
 
       <form action={formAction} className="flex flex-col gap-4 px-5 pt-2 pb-2">
         <input type="hidden" name="lang" value={lang} />

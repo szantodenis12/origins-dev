@@ -3,16 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack -p 4319",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/*.test.mjs\""
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"tests/*.test.mjs\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.1",
-    "@swc/helpers": "^0.5.15",
-    "fflate": "^0.8.3",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.26.0",
     "next": "16.2.11",

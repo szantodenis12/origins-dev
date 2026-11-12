@@ -16,14 +16,37 @@ import type {
   // from this module, so tests reach it under plain Node, whose type
   // stripping resolves relative paths literally.
 } from "../loyalty.ts";
-import { createMemoryDb } from "./memory.ts";
-import { createSupabaseDb } from "./supabase.ts";
+import type {
+  DrawingAttribution,
+  DrawingCategory,
+  DrawingLocation,
+  DrawingStatus,
+} from "../drawing.ts";
+import type { CampaignState } from "../campaign-phase.ts";
+import type {
+  CampaignEvent,
+  CampaignEventName,
+  CampaignEventProps,
+} from "../campaign-metrics.ts";
+import type { SheetKind, WinnerKind } from "./campaign-rules.ts";
+import { createDb } from "./compose.ts";
+
+export type { SheetKind, WinnerKind } from "./campaign-rules.ts";
 
 /**
  * Ports and adapters. Everything above this file talks to the `Db` interface,
- * never to a driver. Supabase is not provisioned yet, so `getDb()` returns the
- * in-memory adapter; when the project exists, add `supabase.ts` implementing
- * the same interface and switch the single line in `getDb()`.
+ * never to a driver.
+ *
+ * Two halves (compose.ts):
+ *   LoyaltyDb   members, cards, menu, staff, audit, stats — the in-memory
+ *               adapter (memory.ts), unchanged.
+ *   CampaignDb  the Christmas drawing contest — persistent when
+ *               SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set
+ *               (supabase.ts, PostgREST over fetch, service role, server
+ *               only); the memory adapter in dev/test without them; and in
+ *               production without them every campaign method throws
+ *               `CampaignStoreUnavailableError` instead of quietly keeping
+ *               children's drawings in RAM.
  */
 
 /**
@@ -385,6 +408,217 @@ export interface NewAuditInput {
   now?: Date;
 }
 
+/* ------------------------------------------- desene (concurs Crăciun 2026) --- */
+
+/**
+ * One child's drawing in the Christmas contest. A separate entity on
+ * purpose: registering a drawing creates no member and no card, and the
+ * phone is not unique here (one parent, several children). Rules, codes and
+ * categories live in lib/drawing.ts; the whole data set is deleted after
+ * 31.01.2027 with `deleteDrawingEntries`.
+ */
+export interface DrawingEntry {
+  id: string;
+  /** "R-001" / "E-001" / "P-001" — unique, sequential per location. */
+  code: string;
+  location: DrawingLocation;
+  childFirstName: string;
+  childAge: number;
+  /** Derived from childAge at creation (lib/drawing.ts). */
+  category: DrawingCategory;
+  parentName: string;
+  /** Canonical national format ("0740038569") — see lib/phone.ts. */
+  phone: string;
+  /** Always true on a stored row: the form refuses without it. */
+  consentParticipation: boolean;
+  /**
+   * Reproduction on Origins cups and materials. False = the drawing
+   * is exhibited only and cannot be selected for print.
+   */
+  consentReproduction: boolean;
+  attribution: DrawingAttribution;
+  consentPhoto: boolean;
+  /**
+   * Separate consent for publishing the drawing in the online gallery
+   * (/desene). Independent of reproduction: gallery needs only this one,
+   * cup printing still needs `consentReproduction`.
+   */
+  consentGallery: boolean;
+  /** "Vreau informații despre Origins Circle" — marketing opt-in, separate. */
+  circleOptIn: boolean;
+  status: DrawingStatus;
+  /**
+   * The photo/scan staff uploaded. `imageOriginal` is a PRIVATE key in the
+   * drawing file store (the untouched file, for the cup supplier);
+   * `imageWeb` and `cupMockup` are public paths (<= 1600 px JPEG, cup mockup).
+   */
+  imageOriginal: string | null;
+  imageWeb: string | null;
+  imageWidth: number | null;
+  imageHeight: number | null;
+  cupMockup: string | null;
+  /** First time it went online; votes per day are counted from here. */
+  publishedAt: string | null;
+  /** Set when staff take it down (moderation); null while it is live. */
+  unpublishedAt: string | null;
+  /**
+   * The public-vote winner of its age group (one per category, manager).
+   * Derived: always `winnerKind === "vote"` (a generated column in 0004).
+   */
+  voteWinner: boolean;
+  /** What it was drawn on; null until the sheet is handed in (0004). */
+  sheetKind: SheetKind | null;
+  /** Physical drawing + signed form received at a café. */
+  submittedAt: string | null;
+  /** Staff id that recorded the submission. */
+  submittedBy: string | null;
+  /** How it won a cup; null = not a winner. */
+  winnerKind: WinnerKind | null;
+  /** Parent accepted after the private phone call. Winners only. */
+  winnerAcceptedAt: string | null;
+  /** Jury reserve order in its category (1 = first); null = not a reserve. */
+  reserveRank: number | null;
+  registeredVia: "web" | "counter";
+  /** Staff id when registered at the counter. */
+  registeredBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NewDrawingEntryInput {
+  location: string;
+  childFirstName: string;
+  childAge: number;
+  parentName: string;
+  /** Any user-typed form; the adapter normalizes. */
+  phone: string;
+  consentParticipation: boolean;
+  consentReproduction: boolean;
+  attribution: DrawingAttribution;
+  consentPhoto: boolean;
+  /** Absent = false: publishing online is never assumed. */
+  consentGallery?: boolean;
+  circleOptIn: boolean;
+  registeredVia: "web" | "counter";
+  registeredBy?: string;
+  now?: Date;
+}
+
+export type CreateDrawingEntryResult =
+  | { status: "created"; entry: DrawingEntry }
+  | { status: "invalid_name" }
+  | { status: "invalid_phone" }
+  | { status: "invalid_age" }
+  | { status: "unknown_location" }
+  | { status: "consent_required" };
+
+export type SetDrawingStatusResult =
+  | { status: "saved"; entry: DrawingEntry; from: DrawingStatus }
+  | { status: "not_found" }
+  /** The ladder in lib/drawing.ts refuses the move (or the role). */
+  | { status: "invalid_transition" }
+  /** "selectat" on a drawing without reproduction consent. */
+  | { status: "not_eligible" };
+
+export interface DrawingImageInput {
+  /** Private key of the untouched upload. */
+  original: string;
+  /** Public path of the web-size JPEG. */
+  web: string;
+  width: number;
+  height: number;
+  /** Public path of the cup mockup image, when one was generated. */
+  cupMockup: string | null;
+}
+
+export type PublishDrawingResult =
+  | { status: "published"; entry: DrawingEntry }
+  | { status: "not_found" }
+  /** lib/drawing.ts drawingPublishBlock said no. */
+  | { status: "blocked"; reason: "no_consent" | "no_image" | "bad_status" };
+
+export type SetVoteWinnerResult =
+  | { status: "saved"; entry: DrawingEntry; replaced: DrawingEntry | null }
+  | { status: "not_found" }
+  /** Only a drawing that is online can win the public vote. */
+  | { status: "not_live" }
+  /** A cup winner must be printable: reproduction consent is missing. */
+  | { status: "not_eligible" }
+  /** Already a jury pick ("selectat"): the two lists do not overlap. */
+  | { status: "is_jury_pick" };
+
+/** One vote as stored: a drawing, a keyed e-mail hash, a time. No address. */
+export interface DrawingVote {
+  drawingId: string;
+  emailHash: string;
+  createdAt: string;
+}
+
+export interface NewVoteCodeInput {
+  drawingId: string;
+  emailHash: string;
+  /** lib/vote-hash.ts hashVoteCode: bound to the drawing and the voter. */
+  codeHash: string;
+  expiresAt: string;
+}
+
+export type RedeemVoteCodeResult =
+  | { status: "voted" }
+  /** Right code, but this e-mail already voted for this drawing. */
+  | { status: "already_voted" }
+  | { status: "wrong_code"; attemptsLeft: number }
+  | { status: "expired" }
+  | { status: "too_many_attempts" }
+  /** No code was requested for this drawing and e-mail. */
+  | { status: "no_code" };
+
+export type MarkDrawingSubmittedResult =
+  | { status: "saved"; entry: DrawingEntry; from: DrawingStatus }
+  | { status: "not_found" }
+  /** Already "selectat" or "returnat": nothing to hand in any more. */
+  | { status: "invalid_transition" }
+  /** "alta-foaie" on a cup winner or a jury reserve. */
+  | { status: "not_eligible" }
+  | { status: "invalid_sheet_kind" };
+
+export type SetDrawingWinnerResult =
+  | { status: "saved"; entry: DrawingEntry; replaced: DrawingEntry | null }
+  | { status: "not_found" }
+  /** "vote" only: the drawing must be online. */
+  | { status: "not_live" }
+  /** No reproduction consent, or drawn on other paper. */
+  | { status: "not_eligible" }
+  /** "vote" on a drawing that is already a jury pick ("selectat"). */
+  | { status: "is_jury_pick" }
+  /** "jury" on the vote winner: the two lists do not overlap. */
+  | { status: "is_vote_winner" };
+
+export type SetWinnerAcceptedResult =
+  | { status: "saved"; entry: DrawingEntry }
+  | { status: "not_found" }
+  | { status: "not_winner" };
+
+export type SetReserveRankResult =
+  | { status: "saved"; entry: DrawingEntry }
+  | { status: "not_found" }
+  /** Not a positive whole number. */
+  | { status: "invalid_rank" }
+  | { status: "not_eligible" }
+  /** Already a cup winner: a reserve is somebody who may step in. */
+  | { status: "is_winner" }
+  /** Another drawing of the same category holds this rank. */
+  | { status: "rank_taken" };
+
+export interface NewCampaignEventInput extends CampaignEventProps {
+  name: CampaignEventName;
+  now?: Date;
+}
+
+export type CastVoteResult =
+  | { status: "voted" }
+  | { status: "already_voted" }
+  | { status: "not_live" };
+
 /* ------------------------------------------------------ stats (phase 5) --- */
 
 export interface LocationStats {
@@ -440,7 +674,7 @@ export interface PlatformStats {
   baristas: BaristaStats[];
 }
 
-export interface Db {
+export interface LoyaltyDb {
   /* program — the mechanics, editable by the manager */
   getLoyaltyConfig(): Promise<LoyaltyConfig>;
   updateLoyaltyConfig(
@@ -559,17 +793,171 @@ export interface Db {
   getStats(now?: Date): Promise<PlatformStats>;
 }
 
+export interface CampaignDb {
+  /* desene — concursul de Crăciun 2026 (lib/drawing.ts) */
+
+  /** Validates, derives the category and hands out the next code atomically. */
+  createDrawingEntry(
+    input: NewDrawingEntryInput,
+  ): Promise<CreateDrawingEntryResult>;
+  getDrawingEntry(id: string): Promise<DrawingEntry | null>;
+  findDrawingEntryByCode(code: string): Promise<DrawingEntry | null>;
+  /** Newest first; a location filter for the barista screens. */
+  listDrawingEntries(options?: {
+    location?: DrawingLocation;
+  }): Promise<DrawingEntry[]>;
+  /** Moves along the ladder in lib/drawing.ts; the role decides "selectat". */
+  setDrawingStatus(
+    id: string,
+    status: DrawingStatus,
+    role: StaffRole,
+    now?: Date,
+  ): Promise<SetDrawingStatusResult>;
+  /**
+   * End of campaign (after 31.01.2027): every entry goes, parents and
+   * children with it. Audit rows that pointed at an entry are redacted the
+   * way `forgetMember` does it — the trail stays, the person does not.
+   */
+  deleteDrawingEntries(): Promise<{ deleted: number }>;
+
+  /* desene — galeria online și votul public (lib/drawing-vote.ts) */
+
+  /** Attaches (or replaces) the uploaded photo. Does not publish. */
+  setDrawingImage(
+    id: string,
+    image: DrawingImageInput,
+    now?: Date,
+  ): Promise<DrawingEntry | null>;
+  /**
+   * Puts the drawing online. Refused without gallery consent, without a
+   * photo, or outside "depus"/"expus". `publishedAt` is written the first
+   * time only: taking a drawing down and putting it back does not restart
+   * its days online.
+   */
+  publishDrawing(id: string, now?: Date): Promise<PublishDrawingResult>;
+  /** Takes it down (moderation). Votes stay. */
+  unpublishDrawing(id: string, now?: Date): Promise<DrawingEntry | null>;
+  /** Live entries only, for the public gallery. */
+  listPublishedDrawings(): Promise<DrawingEntry[]>;
+  /**
+   * Marks (or unmarks) the public-vote winner of the entry's age group.
+   * One per category: marking a second one replaces the first.
+   */
+  setDrawingVoteWinner(
+    id: string,
+    winner: boolean,
+    now?: Date,
+  ): Promise<SetVoteWinnerResult>;
+
+  /** Stores the pending code, replacing an older one for the same pair. */
+  createVoteCode(input: NewVoteCodeInput): Promise<void>;
+  /**
+   * Checks the code and records the vote in one step: counts the attempt,
+   * refuses after `maxAttempts`, burns the code on success. One vote per
+   * drawing per e-mail hash, whatever the caller does.
+   */
+  redeemVoteCode(input: {
+    drawingId: string;
+    emailHash: string;
+    codeHash: string;
+    maxAttempts: number;
+    now?: Date;
+  }): Promise<RedeemVoteCodeResult>;
+  /** A vote from an already verified e-mail hash (signed voter token). */
+  castVote(input: {
+    drawingId: string;
+    emailHash: string;
+    now?: Date;
+  }): Promise<CastVoteResult>;
+  hasVoted(drawingId: string, emailHash: string): Promise<boolean>;
+  /** Manager only: every vote, oldest first. Hashes, never addresses. */
+  listDrawingVotes(): Promise<DrawingVote[]>;
+
+
+  /* desene — fazele concursului (migration 0004, lib/campaign-phase.ts) */
+
+  /**
+   * The sheet and the signed form arrived at a café. From "inregistrat" it
+   * moves the drawing to "depus"; from "depus"/"expus" it only corrects the
+   * sheet kind. `submittedAt`/`submittedBy` are written the first time only.
+   * "alta-foaie" on a cup winner or a reserve is refused (`not_eligible`).
+   * The old `setDrawingStatus(id, "depus")` still works and leaves
+   * `sheetKind` null.
+   */
+  markDrawingSubmitted(
+    id: string,
+    input: { sheetKind: SheetKind; staffId: string | null },
+    now?: Date,
+  ): Promise<MarkDrawingSubmittedResult>;
+  /**
+   * Marks a cup winner ("vote" | "jury") or clears it (null, whatever the
+   * kind). "vote" keeps every rule of `setDrawingVoteWinner` (live, one per
+   * category — the previous one is `replaced`, never a jury pick). Both need
+   * a printable drawing (`campaignPrintable`). Marking clears the reserve
+   * rank and any earlier acceptance. Does NOT change `status`: "selectat"
+   * stays the print ladder, `winnerKind` is the result of the selection.
+   */
+  setDrawingWinner(
+    id: string,
+    kind: WinnerKind | null,
+    now?: Date,
+  ): Promise<SetDrawingWinnerResult>;
+  /** Parent accepted after the private phone call (null = undo). Winners only. */
+  setWinnerAccepted(id: string, acceptedAt: Date | null): Promise<SetWinnerAcceptedResult>;
+  /**
+   * Jury reserve order in the drawing's category (1 = first reserve), or
+   * null to clear. Printable non-winners only; a rank is unique per category.
+   */
+  setReserveRank(id: string, rank: number | null, now?: Date): Promise<SetReserveRankResult>;
+
+  /** The two manual switches (singleton). Never null: empty state by default. */
+  getCampaignState(): Promise<CampaignState>;
+  /** Merges the patch; `undefined` keys are left alone, `null` clears. */
+  updateCampaignState(patch: Partial<CampaignState>): Promise<CampaignState>;
+
+  /**
+   * First-party measurement (lib/campaign-metrics.ts). The name must be a
+   * known event (throws otherwise: a programming error); props go through
+   * `sanitizeEventProps` again here, so nothing identifying is ever stored.
+   */
+  recordCampaignEvent(event: NewCampaignEventInput): Promise<void>;
+  /** Oldest first, `from` inclusive, `to` exclusive. */
+  listCampaignEvents(options?: {
+    from?: Date;
+    to?: Date;
+    name?: CampaignEventName;
+  }): Promise<CampaignEvent[]>;
+
+  /**
+   * Shared fixed-window limiter (every Vercel instance counts together in
+   * Supabase; per process in memory). True = allowed and counted. The key
+   * is hashed before it is stored, but callers should still prefix it
+   * ("vote-send-ip:…") so different limiters never share a counter.
+   */
+  rateLimitHit(
+    key: string,
+    options: { limit: number; windowMs: number },
+    now?: Date,
+  ): Promise<boolean>;
+}
+
+/**
+ * The whole port. `getDb()` composes it: loyalty (members, cards, menu,
+ * staff, audit, stats) from the memory adapter, exactly as before; every
+ * `CampaignDb` method from the campaign store chosen by env (compose.ts).
+ */
+export interface Db extends LoyaltyDb, CampaignDb {}
+
 let db: Db | null = null;
 
-/** The one place the adapter is chosen. */
+/**
+ * The one place the adapter is chosen (see compose.ts `campaignBackend`):
+ *   SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY  -> campaign in Supabase
+ *   neither, NODE_ENV !== "production"        -> campaign in memory
+ *   anything else                             -> campaign methods throw
+ * Loyalty is always the memory adapter.
+ */
 export function getDb(): Db {
-  if (
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    !process.env.NEXT_PUBLIC_SUPABASE_URL.includes("YOUR_PROJECT_ID")
-  ) {
-    db ??= createSupabaseDb();
-  } else {
-    db ??= createMemoryDb();
-  }
+  db ??= createDb(process.env);
   return db;
 }

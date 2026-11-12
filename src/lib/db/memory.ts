@@ -22,7 +22,30 @@ import {
 } from "../data.ts";
 import { normalizePhone } from "../phone.ts";
 import { membersPastRetention } from "../retention.ts";
+import {
+  canChangeDrawingStatus,
+  drawingCategory,
+  drawingCode,
+  drawingIsLive,
+  drawingPublishBlock,
+  normalizeDrawingCode,
+  type DrawingLocation,
+  type DrawingStatus,
+} from "../drawing.ts";
 import { hashStaffPin, verifyStaffPin } from "../admin/staff-pin.ts";
+import { EMPTY_CAMPAIGN_STATE, type CampaignState } from "../campaign-phase.ts";
+import {
+  isCampaignEventName,
+  sanitizeEventProps,
+  type CampaignEvent,
+} from "../campaign-metrics.ts";
+import {
+  campaignPrintable,
+  isSheetKind,
+  SUBMITTABLE_STATUSES,
+  validateNewDrawingEntry,
+  type WinnerKind,
+} from "./campaign-rules.ts";
 // A value import from ./index.ts is a module cycle (index imports this
 // adapter), but a harmless one: CONSENT_VERSION is only read inside getStats,
 // long after both modules finished evaluating.
@@ -36,9 +59,26 @@ import type {
   LoyaltyConfigPatch,
   CategoryPatch,
   CreateLocationResult,
+  CastVoteResult,
+  CreateDrawingEntryResult,
+  DrawingImageInput,
+  DrawingVote,
+  NewVoteCodeInput,
+  PublishDrawingResult,
+  RedeemVoteCodeResult,
+  SetVoteWinnerResult,
+  MarkDrawingSubmittedResult,
+  NewCampaignEventInput,
+  SetDrawingWinnerResult,
+  SetReserveRankResult,
+  SetWinnerAcceptedResult,
   CreateMemberResult,
   CreateStaffResult,
   Db,
+  DrawingEntry,
+  NewDrawingEntryInput,
+  SetDrawingStatusResult,
+  StaffRole,
   ForgetMemberResult,
   LocationPatch,
   LocationStats,
@@ -92,6 +132,20 @@ interface Store {
   campaigns: PushCampaign[];
   /** Jurnalul de modificări — append-only, never trimmed. */
   auditLog: AuditEvent[];
+  /** Concursul de desene 2026 — separate from members (lib/drawing.ts). */
+  drawingEntries: DrawingEntry[];
+  /** Last sequence handed out per contest location: R-017 means 17 here. */
+  drawingSequences: Record<DrawingLocation, number>;
+  /** Public vote: one row per (drawing, e-mail hash). */
+  drawingVotes: DrawingVote[];
+  /** Pending e-mail codes, one per (drawing, e-mail hash). */
+  drawingVoteCodes: (NewVoteCodeInput & { attempts: number })[];
+  /** The manual campaign switches (campaign_state in Supabase). */
+  campaignState: CampaignState;
+  /** First-party measurement rows: event names + whitelisted slugs only. */
+  campaignEvents: CampaignEvent[];
+  /** Per-process fixed windows for `rateLimitHit`. */
+  rateLimits: Map<string, { windowStart: number; hits: number }>;
   nextStampId: number;
   nextRedemptionId: number;
   nextCampaignId: number;
@@ -101,6 +155,118 @@ interface Store {
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+
+/**
+ * DEMO ONLY: six published drawings so the gallery, the drawing page with
+ * the cup and the vote screen have something to show under `next dev`.
+ *
+ * Runs only when NODE_ENV is exactly "development". Never in production
+ * (`next build` / `next start`), never in tests (`node --test` leaves
+ * NODE_ENV unset, and the suites count on an empty contest), and it only
+ * exists in this in-memory adapter: the Supabase adapter has no seed.
+ * Every name says "Demo"; images are in public/desen/demo/. Set
+ * DEMO_DRAWINGS=0 to start `next dev` with an empty contest.
+ */
+function seedDemoDrawings(store: Store, now: number): void {
+  if (process.env.NODE_ENV !== "development") return;
+  if (process.env.DEMO_DRAWINGS === "0") return;
+  // With a persistent campaign store configured, the contest is not read
+  // from this adapter at all (compose.ts); seeding would only be confusing.
+  // Demo rows exist ONLY here: nothing in this file ever writes to Supabase.
+  if (process.env.SUPABASE_URL) return;
+
+  const demo: {
+    location: DrawingLocation;
+    name: string;
+    age: number;
+    named: boolean;
+    image: number;
+    width: number;
+    height: number;
+    daysOnline: number;
+    votes: number;
+  }[] = [
+    { location: "rogerius", name: "Demo Ana", age: 4, named: true, image: 3, width: 1460, height: 754, daysOnline: 5, votes: 9 },
+    { location: "era", name: "Demo Luca", age: 5, named: true, image: 4, width: 1460, height: 754, daysOnline: 2, votes: 6 },
+    { location: "rogerius", name: "Demo Mara", age: 7, named: true, image: 1, width: 1600, height: 832, daysOnline: 4, votes: 8 },
+    { location: "palatul-copiilor", name: "Demo Tudor", age: 9, named: true, image: 5, width: 1460, height: 754, daysOnline: 1.5, votes: 3 },
+    { location: "era", name: "Demo Ilinca", age: 11, named: true, image: 2, width: 1600, height: 832, daysOnline: 3, votes: 12 },
+    { location: "rogerius", name: "Demo Fără Prenume", age: 13, named: false, image: 6, width: 1460, height: 754, daysOnline: 3, votes: 12 },
+  ];
+
+  // Scale test: DEMO_DRAWINGS=150 grows the demo to 150 real entries (real
+  // codes, real pages) by cycling the six images. Every 4th is anonymous,
+  // every 7th is gallery-only (no reproduction consent: shown, not votable).
+  const wanted = Number(process.env.DEMO_DRAWINGS);
+  const base = demo.length;
+  const locations: DrawingLocation[] = ["rogerius", "era", "palatul-copiilor"];
+  for (let i = base; Number.isInteger(wanted) && i < Math.min(wanted, 500); i += 1) {
+    const like = demo[i % base];
+    demo.push({
+      ...like,
+      location: locations[i % 3],
+      name: `Demo ${i + 1}`,
+      age: 3 + (i % 12),
+      named: i % 4 !== 0,
+      daysOnline: 0.5 + (i % 14),
+      votes: i % 9,
+    });
+  }
+
+  for (const [index, item] of demo.entries()) {
+    const sequence = store.drawingSequences[item.location] + 1;
+    store.drawingSequences[item.location] = sequence;
+    const publishedAt = new Date(now - item.daysOnline * DAY).toISOString();
+    const id = `demo-desen-${index + 1}`;
+    store.drawingEntries.push({
+      id,
+      code: drawingCode(item.location, sequence),
+      location: item.location,
+      childFirstName: item.name,
+      childAge: item.age,
+      category: drawingCategory(item.age)!,
+      parentName: "Părinte Demo",
+      phone: "0700000001",
+      consentParticipation: true,
+      consentReproduction: index < base || index % 7 !== 0,
+      attribution: item.named ? "first-name-age" : "none",
+      consentPhoto: false,
+      consentGallery: true,
+      imageOriginal: null,
+      imageWeb: `/desen/demo/demo-${item.image}.jpg`,
+      imageWidth: item.width,
+      imageHeight: item.height,
+      cupMockup: index < base || index % 7 !== 0 ? `/desen/demo/pahar-${item.image}.jpg` : null,
+      publishedAt,
+      unpublishedAt: null,
+      voteWinner: false,
+      sheetKind: "oficiala",
+      submittedAt: publishedAt,
+      submittedBy: null,
+      winnerKind: null,
+      winnerAcceptedAt: null,
+      reserveRank: null,
+      circleOptIn: false,
+      status: index % 2 === 0 ? "expus" : "depus",
+      registeredVia: "counter",
+      createdAt: publishedAt,
+      updatedAt: publishedAt,
+    });
+    // Fake votes with fake hashes, spread over the time online. The last
+    // drawing gets its votes in one burst, so the manager's alarm shows.
+    const burst = index === base - 1;
+    for (let v = 0; v < item.votes; v += 1) {
+      const at = burst
+        ? now - 2 * DAY + v * 2 * MINUTE
+        : now - item.daysOnline * DAY + ((v + 1) / (item.votes + 1)) * item.daysOnline * DAY;
+      store.drawingVotes.push({
+        drawingId: id,
+        emailHash: `${index}${v}`.padStart(4, "0").padEnd(64, "d"),
+        createdAt: new Date(at).toISOString(),
+      });
+    }
+  }
+}
 
 function seed(): Store {
   const now = Date.now();
@@ -122,11 +288,20 @@ function seed(): Store {
     })),
     campaigns: [],
     auditLog: [],
+    drawingEntries: [],
+    drawingSequences: { rogerius: 0, era: 0, "palatul-copiilor": 0 },
+    drawingVotes: [],
+    drawingVoteCodes: [],
+    campaignState: { ...EMPTY_CAMPAIGN_STATE },
+    campaignEvents: [],
+    rateLimits: new Map(),
     nextStampId: 1,
     nextRedemptionId: 1,
     nextCampaignId: 1,
     nextAuditId: 1,
   };
+
+  seedDemoDrawings(store, now);
 
   // One shared demo barista + one manager per real location, so the cookie
   // always resolves whichever role logged in — plus two personal demo
@@ -322,7 +497,7 @@ function seed(): Store {
 /**
  * The key carries two parts.
  *
- * `v2` is the Store *shape* and is bumped by hand: old-shape state would crash
+ * `v3` is the Store *shape* and is bumped by hand: old-shape state would crash
  * freshly reloaded code. The suffix is a fingerprint of the seed itself, so
  * editing `data.ts` re-seeds automatically. Without it, a `next dev` started
  * before a menu edit keeps serving the previous menu from the surviving
@@ -341,7 +516,87 @@ function seedFingerprint(): string {
   return (hash >>> 0).toString(36);
 }
 
-export const STORE_KEY = Symbol.for(`origins.memory-db.v2.${seedFingerprint()}`);
+export const STORE_KEY = Symbol.for(`origins.memory-db.v6.${seedFingerprint()}`);
+
+/**
+ * The one place a vote is written: live drawing, one row per (drawing,
+ * e-mail hash). Supabase holds the same rule as a unique index (0003).
+ */
+function recordVote(drawingId: string, emailHash: string, now: Date): CastVoteResult {
+  const store = getStore();
+  const entry = store.drawingEntries.find((e) => e.id === drawingId);
+  if (!entry || !drawingIsLive(entry)) return { status: "not_live" };
+  const exists = store.drawingVotes.some(
+    (v) => v.drawingId === drawingId && v.emailHash === emailHash,
+  );
+  if (exists) return { status: "already_voted" };
+  store.drawingVotes.push({ drawingId, emailHash, createdAt: now.toISOString() });
+  return { status: "voted" };
+}
+
+/**
+ * Marks or clears a cup winner. Same rules, same words as the SQL function
+ * `set_drawing_winner` (migration 0004).
+ */
+function setWinner(
+  id: string,
+  kind: WinnerKind | null,
+  now: Date,
+): SetDrawingWinnerResult {
+  const store = getStore();
+  const entry = store.drawingEntries.find((e) => e.id === id);
+  if (!entry) return { status: "not_found" };
+  const at = now.toISOString();
+  if (kind === null) {
+    entry.winnerKind = null;
+    entry.voteWinner = false;
+    entry.winnerAcceptedAt = null;
+    entry.updatedAt = at;
+    return { status: "saved", entry, replaced: null };
+  }
+  if (entry.winnerKind === kind) return { status: "saved", entry, replaced: null };
+  if (kind === "vote" && !drawingIsLive(entry)) return { status: "not_live" };
+  if (!campaignPrintable(entry)) return { status: "not_eligible" };
+  if (kind === "vote" && entry.status === "selectat") return { status: "is_jury_pick" };
+  if (kind === "jury" && entry.winnerKind === "vote") return { status: "is_vote_winner" };
+
+  let replaced: DrawingEntry | null = null;
+  if (kind === "vote") {
+    replaced =
+      store.drawingEntries.find(
+        (e) => e.winnerKind === "vote" && e.category === entry.category && e.id !== entry.id,
+      ) ?? null;
+    if (replaced) {
+      replaced.winnerKind = null;
+      replaced.voteWinner = false;
+      replaced.winnerAcceptedAt = null;
+      replaced.updatedAt = at;
+    }
+  }
+  entry.winnerKind = kind;
+  entry.voteWinner = kind === "vote";
+  entry.winnerAcceptedAt = null;
+  entry.reserveRank = null;
+  entry.updatedAt = at;
+  return { status: "saved", entry, replaced };
+}
+
+/**
+ * End-of-campaign discipline, like forgetMember: the Jurnal rows about a
+ * deleted drawing stay (what happened, who did it), the part that points at
+ * a child does not. Summaries only ever carried the code, never a name or a
+ * phone, but a code still resolves to a row until the deletion. Exported
+ * because the Jurnal lives here even when the campaign store is Supabase
+ * (compose.ts calls it after the remote delete).
+ */
+export function redactDrawingAudit(ids: Set<string>): void {
+  for (const entry of getStore().auditLog) {
+    if (!ids.has(entry.target)) continue;
+    entry.target = "desen-sters";
+    entry.summary = `${entry.action}: acțiune pe un desen șters la finalul campaniei.`;
+    delete entry.details;
+  }
+}
 
 function getStore(): Store {
   const host = globalThis as typeof globalThis & { [STORE_KEY]?: Store };
@@ -1172,6 +1427,378 @@ export function createMemoryDb(): Db {
       const limit = options?.limit ?? 50;
       // Ids grow with time, so newest-first is just the reversed tail.
       return [...getStore().auditLog].sort((a, b) => b.id - a.id).slice(0, limit);
+    },
+
+    /* ----------------------------------------------------------- desene --- */
+
+    async createDrawingEntry(
+      input: NewDrawingEntryInput,
+    ): Promise<CreateDrawingEntryResult> {
+      const store = getStore();
+      const checked = validateNewDrawingEntry(input);
+      if (!checked.ok) return { status: checked.status };
+      const v = checked.values;
+      // The sequence is read and written in one synchronous step: the memory
+      // store runs on a single thread, so two submits cannot share a number.
+      // Supabase does the same with `next_drawing_code()` (migration 0002).
+      const sequence = store.drawingSequences[v.location] + 1;
+      store.drawingSequences[v.location] = sequence;
+
+      const now = (input.now ?? new Date()).toISOString();
+      const entry: DrawingEntry = {
+        id: crypto.randomUUID(),
+        code: drawingCode(v.location, sequence),
+        location: v.location,
+        childFirstName: v.childFirstName,
+        childAge: v.childAge,
+        category: v.category,
+        parentName: v.parentName,
+        phone: v.phone,
+        consentParticipation: true,
+        consentReproduction: v.consentReproduction,
+        attribution: v.attribution,
+        consentPhoto: v.consentPhoto,
+        consentGallery: v.consentGallery,
+        imageOriginal: null,
+        imageWeb: null,
+        imageWidth: null,
+        imageHeight: null,
+        cupMockup: null,
+        publishedAt: null,
+        unpublishedAt: null,
+        voteWinner: false,
+        sheetKind: null,
+        submittedAt: null,
+        submittedBy: null,
+        winnerKind: null,
+        winnerAcceptedAt: null,
+        reserveRank: null,
+        circleOptIn: v.circleOptIn,
+        status: "inregistrat",
+        registeredVia: input.registeredVia,
+        ...(input.registeredBy ? { registeredBy: input.registeredBy } : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.drawingEntries.push(entry);
+      return { status: "created", entry };
+    },
+
+    async getDrawingEntry(id: string): Promise<DrawingEntry | null> {
+      return getStore().drawingEntries.find((e) => e.id === id) ?? null;
+    },
+
+    async findDrawingEntryByCode(code: string): Promise<DrawingEntry | null> {
+      const wanted = normalizeDrawingCode(code);
+      if (!wanted) return null;
+      return getStore().drawingEntries.find((e) => e.code === wanted) ?? null;
+    },
+
+    async listDrawingEntries(options?: {
+      location?: DrawingLocation;
+    }): Promise<DrawingEntry[]> {
+      return getStore()
+        .drawingEntries.filter(
+          (e) => !options?.location || e.location === options.location,
+        )
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    },
+
+    async setDrawingStatus(
+      id: string,
+      status: DrawingStatus,
+      role: StaffRole,
+      now: Date = new Date(),
+    ): Promise<SetDrawingStatusResult> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      if (!canChangeDrawingStatus(entry.status, status, role)) {
+        return { status: "invalid_transition" };
+      }
+      if (status === "selectat" && !campaignPrintable(entry)) {
+        return { status: "not_eligible" };
+      }
+      // Vote winners are decided first; the jury picks from the rest.
+      if (status === "selectat" && entry.voteWinner) {
+        return { status: "invalid_transition" };
+      }
+      const from = entry.status;
+      entry.status = status;
+      entry.updatedAt = now.toISOString();
+      return { status: "saved", entry, from };
+    },
+
+    async deleteDrawingEntries(): Promise<{ deleted: number }> {
+      const store = getStore();
+      const ids = new Set(store.drawingEntries.map((e) => e.id));
+      const deleted = store.drawingEntries.length;
+      store.drawingEntries = [];
+      // Votes and pending codes belong to the entries: they go with them.
+      store.drawingVotes = [];
+      store.drawingVoteCodes = [];
+      // The sequences restart with the data: a second edition starts at 001.
+      store.drawingSequences = { rogerius: 0, era: 0, "palatul-copiilor": 0 };
+
+      store.rateLimits.clear();
+      redactDrawingAudit(ids);
+      return { deleted };
+    },
+
+    /* ---------------------------------------------- desene: galerie + vot --- */
+
+    async setDrawingImage(
+      id: string,
+      image: DrawingImageInput,
+      now: Date = new Date(),
+    ): Promise<DrawingEntry | null> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return null;
+      entry.imageOriginal = image.original;
+      entry.imageWeb = image.web;
+      entry.imageWidth = image.width;
+      entry.imageHeight = image.height;
+      entry.cupMockup = image.cupMockup;
+      entry.updatedAt = now.toISOString();
+      return entry;
+    },
+
+    async publishDrawing(
+      id: string,
+      now: Date = new Date(),
+    ): Promise<PublishDrawingResult> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      const block = drawingPublishBlock(entry);
+      if (block) return { status: "blocked", reason: block };
+      // First publish only: a take-down and return keeps the original clock.
+      entry.publishedAt ??= now.toISOString();
+      entry.unpublishedAt = null;
+      entry.updatedAt = now.toISOString();
+      return { status: "published", entry };
+    },
+
+    async unpublishDrawing(
+      id: string,
+      now: Date = new Date(),
+    ): Promise<DrawingEntry | null> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return null;
+      if (drawingIsLive(entry)) {
+        entry.unpublishedAt = now.toISOString();
+        entry.updatedAt = now.toISOString();
+      }
+      return entry;
+    },
+
+    async listPublishedDrawings(): Promise<DrawingEntry[]> {
+      return getStore()
+        .drawingEntries.filter((e) => drawingIsLive(e) && e.imageWeb !== null)
+        .sort((a, b) => (a.publishedAt! < b.publishedAt! ? 1 : -1));
+    },
+
+    async setDrawingVoteWinner(
+      id: string,
+      winner: boolean,
+      now: Date = new Date(),
+    ): Promise<SetVoteWinnerResult> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      // Unmarking only ever clears a VOTE win; a jury pick is left alone.
+      if (!winner && entry.winnerKind !== "vote") {
+        return { status: "saved", entry, replaced: null };
+      }
+      const result = setWinner(id, winner ? "vote" : null, now);
+      // "is_vote_winner" cannot happen for kind "vote".
+      return result as SetVoteWinnerResult;
+    },
+
+    async createVoteCode(input: NewVoteCodeInput): Promise<void> {
+      const store = getStore();
+      store.drawingVoteCodes = store.drawingVoteCodes.filter(
+        (c) => !(c.drawingId === input.drawingId && c.emailHash === input.emailHash),
+      );
+      store.drawingVoteCodes.push({ ...input, attempts: 0 });
+    },
+
+    async redeemVoteCode(input: {
+      drawingId: string;
+      emailHash: string;
+      codeHash: string;
+      maxAttempts: number;
+      now?: Date;
+    }): Promise<RedeemVoteCodeResult> {
+      const store = getStore();
+      const now = input.now ?? new Date();
+      const pending = store.drawingVoteCodes.find(
+        (c) => c.drawingId === input.drawingId && c.emailHash === input.emailHash,
+      );
+      if (!pending) return { status: "no_code" };
+      if (new Date(pending.expiresAt).getTime() <= now.getTime()) {
+        return { status: "expired" };
+      }
+      if (pending.attempts >= input.maxAttempts) {
+        return { status: "too_many_attempts" };
+      }
+      if (pending.codeHash !== input.codeHash) {
+        pending.attempts += 1;
+        const attemptsLeft = input.maxAttempts - pending.attempts;
+        return attemptsLeft > 0
+          ? { status: "wrong_code", attemptsLeft }
+          : { status: "too_many_attempts" };
+      }
+
+      // Right code: it is spent whatever happens next.
+      store.drawingVoteCodes = store.drawingVoteCodes.filter((c) => c !== pending);
+      const result = recordVote(input.drawingId, input.emailHash, now);
+      // A drawing taken down between the e-mail and the code: nothing to vote for.
+      return result.status === "not_live" ? { status: "no_code" } : result;
+    },
+
+    async castVote(input: {
+      drawingId: string;
+      emailHash: string;
+      now?: Date;
+    }): Promise<CastVoteResult> {
+      return recordVote(input.drawingId, input.emailHash, input.now ?? new Date());
+    },
+
+    async hasVoted(drawingId: string, emailHash: string): Promise<boolean> {
+      return getStore().drawingVotes.some(
+        (v) => v.drawingId === drawingId && v.emailHash === emailHash,
+      );
+    },
+
+    async listDrawingVotes(): Promise<DrawingVote[]> {
+      return [...getStore().drawingVotes].sort((a, b) =>
+        a.createdAt < b.createdAt ? -1 : 1,
+      );
+    },
+
+    /* ------------------------------------------ desene: fazele concursului --- */
+
+    async markDrawingSubmitted(
+      id: string,
+      input: { sheetKind: string; staffId: string | null },
+      now: Date = new Date(),
+    ): Promise<MarkDrawingSubmittedResult> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      if (!isSheetKind(input.sheetKind)) return { status: "invalid_sheet_kind" };
+      if (!(SUBMITTABLE_STATUSES as readonly string[]).includes(entry.status)) {
+        return { status: "invalid_transition" };
+      }
+      if (
+        input.sheetKind === "alta-foaie" &&
+        (entry.winnerKind !== null || entry.reserveRank !== null)
+      ) {
+        return { status: "not_eligible" };
+      }
+      const from = entry.status;
+      entry.sheetKind = input.sheetKind;
+      entry.submittedAt ??= now.toISOString();
+      entry.submittedBy ??= input.staffId;
+      if (entry.status === "inregistrat") entry.status = "depus";
+      entry.updatedAt = now.toISOString();
+      return { status: "saved", entry, from };
+    },
+
+    async setDrawingWinner(
+      id: string,
+      kind: WinnerKind | null,
+      now: Date = new Date(),
+    ): Promise<SetDrawingWinnerResult> {
+      return setWinner(id, kind, now);
+    },
+
+    async setWinnerAccepted(
+      id: string,
+      acceptedAt: Date | null,
+    ): Promise<SetWinnerAcceptedResult> {
+      const entry = getStore().drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      if (entry.winnerKind === null) return { status: "not_winner" };
+      entry.winnerAcceptedAt = acceptedAt ? acceptedAt.toISOString() : null;
+      entry.updatedAt = (acceptedAt ?? new Date()).toISOString();
+      return { status: "saved", entry };
+    },
+
+    async setReserveRank(
+      id: string,
+      rank: number | null,
+      now: Date = new Date(),
+    ): Promise<SetReserveRankResult> {
+      const store = getStore();
+      const entry = store.drawingEntries.find((e) => e.id === id);
+      if (!entry) return { status: "not_found" };
+      if (rank !== null) {
+        if (!Number.isInteger(rank) || rank < 1) return { status: "invalid_rank" };
+        if (entry.winnerKind !== null) return { status: "is_winner" };
+        if (!campaignPrintable(entry)) return { status: "not_eligible" };
+        const taken = store.drawingEntries.some(
+          (e) => e.id !== entry.id && e.category === entry.category && e.reserveRank === rank,
+        );
+        if (taken) return { status: "rank_taken" };
+      }
+      entry.reserveRank = rank;
+      entry.updatedAt = now.toISOString();
+      return { status: "saved", entry };
+    },
+
+    async getCampaignState(): Promise<CampaignState> {
+      return { ...getStore().campaignState };
+    },
+
+    async updateCampaignState(patch: Partial<CampaignState>): Promise<CampaignState> {
+      const store = getStore();
+      for (const key of ["resultsPublishedAt", "collectionConfirmedAt"] as const) {
+        if (patch[key] !== undefined) store.campaignState[key] = patch[key];
+      }
+      return { ...store.campaignState };
+    },
+
+    async recordCampaignEvent(event: NewCampaignEventInput): Promise<void> {
+      if (!isCampaignEventName(event.name)) {
+        throw new Error(`Eveniment de campanie necunoscut: ${String(event.name)}`);
+      }
+      getStore().campaignEvents.push({
+        name: event.name,
+        ...sanitizeEventProps(event as unknown as Record<string, unknown>),
+        createdAt: (event.now ?? new Date()).toISOString(),
+      });
+    },
+
+    async listCampaignEvents(options?: {
+      from?: Date;
+      to?: Date;
+      name?: string;
+    }): Promise<CampaignEvent[]> {
+      const from = options?.from?.toISOString();
+      const to = options?.to?.toISOString();
+      return getStore()
+        .campaignEvents.filter(
+          (e) =>
+            (!from || e.createdAt >= from) &&
+            (!to || e.createdAt < to) &&
+            (!options?.name || e.name === options.name),
+        )
+        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+        .map((e) => ({ ...e }));
+    },
+
+    async rateLimitHit(
+      key: string,
+      options: { limit: number; windowMs: number },
+      now: Date = new Date(),
+    ): Promise<boolean> {
+      const limits = getStore().rateLimits;
+      const t = now.getTime();
+      const current = limits.get(key);
+      if (!current || t - current.windowStart >= options.windowMs) {
+        limits.set(key, { windowStart: t, hits: 1 });
+        return 1 <= options.limit;
+      }
+      current.hits += 1;
+      return current.hits <= options.limit;
     },
 
     /* ------------------------------------------------------------ stats --- */
