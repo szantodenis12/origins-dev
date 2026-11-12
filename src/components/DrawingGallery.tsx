@@ -40,10 +40,10 @@ import Snowfall from "./Snowfall";
  * Origins green as the one accent. No kickers, eyebrows or tag chips
  * anywhere: headlines start directly (Roland's permanent rule).
  *
- * Mobile journey (11.2026): one teaser (the panorama), the key facts right
- * under the hero, then how to take part, then the gallery. The fan, the
- * "latest drawings" band and the cup banner repeated the same drawings and
- * are gone.
+ * Mobile journey (11.2026): the cup photo as the hero, the key facts right
+ * under it, then how to take part, then the gallery. The fan, the panoramic
+ * strip, the "latest drawings" band and the cup banner all repeated the same
+ * drawings and are gone.
  *
  * Everything depends on the campaign phase (lib/campaign-phase.ts),
  * computed on the server and handed down: before opening, entries open,
@@ -444,84 +444,29 @@ export function DrawingCard({
 }
 
 /**
- * The curved panoramic strip of the hero: five panels on one perspective,
- * the outer ones turned inward like the walls of a round gallery room.
- * Each panel hangs one of the latest drawings; the cup stands in the
- * middle. The page's ONE teaser: no other block repeats these drawings.
+ * The hero image: the Christmas cup, whole and uncropped.
+ *
+ * It replaced the panoramic strip of five turned panels (Roland, 12.11.2026):
+ * one photograph, nothing around it. The photo is a portrait with its own
+ * dark-green vignette, so it is never cropped to a band and never stretched
+ * edge to edge - it is sized by height and centred, and the page's white
+ * wall is left to frame it.
+ *
+ * alt is empty on purpose: the h1 directly above says exactly what this
+ * shows, and a screen reader should not hear the same sentence twice.
  */
-const PANELS = [
-  { turn: 40, origin: "right center", flex: 1.5 },
-  { turn: 20, origin: "right center", flex: 1.15 },
-  { turn: 0, origin: "center", flex: 1.3 },
-  { turn: -20, origin: "left center", flex: 1.15 },
-  { turn: -40, origin: "left center", flex: 1.5 },
-];
-
-function Panorama({
-  drawings,
-  cup,
-  words,
-}: {
-  drawings: PublicDrawing[];
-  cup: PublicDrawing | null;
-  words: Words;
-}) {
-  if (drawings.length === 0) return null;
-  const sheets = drawings.filter((drawing) => drawing.code !== cup?.code);
-  const pool = sheets.length > 0 ? sheets : drawings;
-  const pick = (index: number) => pool[index % pool.length];
-  const slots: (PublicDrawing | "cup")[] = [
-    pick(0),
-    pick(1),
-    cup?.cupImage ? "cup" : pick(4),
-    pick(2),
-    pick(3),
-  ];
-
+function HeroCup() {
   return (
-    <div className="relative z-20 overflow-x-clip py-4 sm:py-8 lg:py-12">
-      <div className="mx-auto flex h-[130px] w-full max-w-[1560px] items-stretch gap-1 px-[4%] sm:h-[210px] lg:h-[300px] lg:gap-2 xl:h-[340px]">
-        {slots.map((slot, index) => {
-          const panel = PANELS[index];
-          const target = slot === "cup" ? cup! : slot;
-          return (
-            <Link
-              key={index}
-              href={`/desene/${target.code}`}
-              aria-label={drawingLabel(target, words)}
-              className={`relative block overflow-hidden bg-o-wall ${FOCUS}`}
-              style={{
-                flex: panel.flex,
-                transform: `perspective(700px) rotateY(${panel.turn}deg)`,
-                transformOrigin: panel.origin,
-              }}
-            >
-              {slot === "cup" ? (
-                <Image
-                  src={cup!.cupImage!}
-                  alt=""
-                  fill
-                  sizes="(min-width: 1024px) 300px, 20vw"
-                  priority
-                  className="object-cover"
-                />
-              ) : (
-                <span className="absolute inset-x-[9%] top-1/2 block -translate-y-1/2 border border-o-ink/10 bg-white p-[3%] shadow-[0_10px_24px_rgba(18,18,18,0.12)]">
-                  <Image
-                    src={slot.image}
-                    alt=""
-                    width={slot.imageWidth}
-                    height={slot.imageHeight}
-                    sizes="(min-width: 1024px) 280px, 20vw"
-                    priority={index < 2}
-                    className="h-auto w-full"
-                  />
-                </span>
-              )}
-            </Link>
-          );
-        })}
-      </div>
+    <div className="relative z-20 flex justify-center px-[4%] py-2 sm:py-5 lg:py-8">
+      <Image
+        src="/cup/pahar-craciun-2026.jpg"
+        alt=""
+        width={1122}
+        height={1402}
+        priority
+        sizes="(min-width: 1024px) 460px, 70vw"
+        className="h-[300px] w-auto sm:h-[400px] lg:h-[500px] xl:h-[560px]"
+      />
     </div>
   );
 }
@@ -945,8 +890,6 @@ export default function DrawingGallery({
   drawings,
   phase,
   total,
-  latest,
-  cup,
   links,
   results,
   initial,
@@ -958,10 +901,6 @@ export default function DrawingGallery({
   phase: CampaignPhase;
   /** Drawings online, all age groups. A count of drawings, never of votes. */
   total: number;
-  /** Newest first: the hero strip only. */
-  latest: PublicDrawing[];
-  /** A drawing with a cup mockup, for the centre of the hero strip. */
-  cup: PublicDrawing | null;
   /** The chosen drawings, only in the results and collection phases. */
   results: PublicResults | null;
   /** Filter state from the URL (?grupa, ?cod, ?n), for a stable first render. */
@@ -1008,7 +947,7 @@ export default function DrawingGallery({
             <Stagger as="h1" size="lg" indent={false} a={t("h2HeroA")} b={t("h2HeroB")} />
           </div>
           <div className="mt-3 lg:mt-8">
-            <Panorama drawings={latest} cup={cup} words={words} />
+            <HeroCup />
           </div>
           <div className={`${WRAP} mt-3 grid gap-5 lg:mt-10 lg:grid-cols-12 lg:items-center lg:gap-10`}>
             <div className={`${PROSE} text-[15.5px] leading-[1.6] text-o-ink/85 lg:col-span-8 lg:text-[17px]`}>

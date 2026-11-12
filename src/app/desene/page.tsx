@@ -107,8 +107,6 @@ export default async function DesenePage({
       drawings={stableShuffle(all, seed)}
       phase={phase}
       total={all.length}
-      latest={all.slice(0, 6)}
-      cup={all.find((drawing) => drawing.cupImage !== null) ?? null}
       results={resultsVisible(phase) ? publicResults(entries) : null}
       initial={initial}
     />
