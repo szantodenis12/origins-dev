@@ -45,7 +45,9 @@ const nextConfig: NextConfig = {
   // Dev only: the campaign host is tested as http://xmas.localhost:4320
   // (CAMPAIGN_HOST=xmas.localhost:4320); without this Next refuses its own
   // dev assets to another hostname.
-  allowedDevOrigins: ["*.localhost"],
+  // trycloudflare: a throwaway HTTPS tunnel, so the counter flow can be
+  // handed to someone else's phone before the campaign opens. Dev only.
+  allowedDevOrigins: ["*.localhost", "*.trycloudflare.com"],
   // The contest's legal texts are read from disk at request time
   // (lib/contest-docs.ts), so the production file trace must carry them.
   outputFileTracingIncludes: {
