@@ -173,6 +173,11 @@ export const FOCUS =
  * The two-line headline: a bold uppercase first line, a light second line
  * set off to the right. It starts directly: no kicker, no eyebrow, no small
  * label above it (Roland's permanent rule, 10.11.2026).
+ *
+ * `indent` is what makes the stagger. Turn it off where the first line runs
+ * nearly the full column and the second is much shorter — the offset then
+ * reads as a stray line rather than a deliberate step, so the two lines are
+ * centred on each other instead.
  */
 export function Stagger({
   a,
@@ -180,6 +185,7 @@ export function Stagger({
   as: Tag = "h2",
   size = "md",
   align = "center",
+  indent = true,
   id,
 }: {
   a: string;
@@ -187,6 +193,7 @@ export function Stagger({
   as?: "h1" | "h2";
   size?: "sm" | "md" | "lg";
   align?: "center" | "left";
+  indent?: boolean;
   id?: string;
 }) {
   const scale = {
@@ -198,10 +205,18 @@ export function Stagger({
     <div className={align === "center" ? "text-center" : ""}>
       <Tag
         id={id}
-        className={`${scale} inline-block max-w-full text-left leading-[1.14] tracking-[-0.01em] uppercase`}
+        className={`${scale} inline-block max-w-full ${
+          indent ? "text-left" : "text-center"
+        } leading-[1.14] tracking-[-0.01em] uppercase`}
       >
         <span className="block font-extrabold text-balance">{a}</span>
-        <span className="block pl-[1.4em] font-light lg:pl-[2.2em]">{b}</span>
+        <span
+          className={`block font-light text-balance ${
+            indent ? "pl-[1.4em] lg:pl-[2.2em]" : ""
+          }`}
+        >
+          {b}
+        </span>
       </Tag>
     </div>
   );
@@ -948,7 +963,7 @@ export default function DrawingGallery({
         {/* ------------------------------------------------------------ hero */}
         <section className="pt-5 lg:pt-10">
           <div className={WRAP}>
-            <Stagger as="h1" size="lg" a={t("h2HeroA")} b={t("h2HeroB")} />
+            <Stagger as="h1" size="lg" indent={false} a={t("h2HeroA")} b={t("h2HeroB")} />
           </div>
           <div className="mt-3 lg:mt-8">
             <Panorama drawings={latest} cup={cup} words={words} />
