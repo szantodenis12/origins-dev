@@ -63,7 +63,27 @@ export interface PanelHistoryEntry {
 export interface PanelNotice {
   tone: "success" | "info";
   text: string;
+  /**
+   * Which icon carries the line. Default "stamp" fits everything the till
+   * does to a card; "person" is for a notice about who the member is.
+   */
+  icon?: "stamp" | "person";
 }
+
+/**
+ * The member's own card link, ready to hand back at the counter — the answer
+ * to spec §6.4 when the member has no way to type a UUID off a shop phone.
+ */
+export interface CardQr {
+  /** Absolute URL of the member's web card. */
+  url: string;
+  /** The same URL as an inline SVG QR, rendered on the server. */
+  svg: string;
+}
+
+export type CardQrResult =
+  | { ok: true; qr: CardQr }
+  | { ok: false; reason: "unauthorized" | "not_found" | "failed" };
 
 export type PanelResult =
   | { ok: true; panel: MemberPanel; notice?: PanelNotice }

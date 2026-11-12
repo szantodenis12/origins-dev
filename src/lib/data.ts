@@ -51,6 +51,10 @@ export const locations: Location[] = [
   {
     slug: "oraselul",
     name: "Orășelul Copiilor",
+    // Roland's package carries "Strada Episcop Ioan Suciu 7" here. The
+    // locations table in Supabase — what the live site actually reads —
+    // says Calea Corneliu Coposu 8, so the seed keeps saying the same
+    // thing. One of the two is wrong: confirm with the client.
     address: { ro: "Calea Corneliu Coposu 8, Oradea", hu: "Calea Corneliu Coposu 8, Nagyvárad" },
     // Client, 08.08.2026: the park kiosk runs a different clock each month.
     // March-June not given yet → null, so those months show nothing instead of

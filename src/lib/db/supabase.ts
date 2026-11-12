@@ -7,7 +7,7 @@ import type {
   CreateMemberResult,
   CreateStaffResult,
   GrantStaffLocationResult,
-  Db,
+  LoyaltyDb,
   ForgetMemberResult,
   LocationPatch,
   LocationStats,
@@ -95,7 +95,7 @@ function generatePassSerial(): string {
   return `ORIG-${randomSerialBlock(4)}-${randomSerialBlock(4)}`;
 }
 
-export function createSupabaseDb(): Db {
+export function createSupabaseDb(): LoyaltyDb {
   const client = supabaseClient;
 
   if (!client) {
@@ -1553,4 +1553,37 @@ function mapDbProduct(row: any): Product {
     seasonal: row.seasonal,
     photo: row.photo_url,
   };
+}
+
+/**
+ * The Jurnal outlives the campaign data: after the drawings are deleted the
+ * actions stay, but a row that pointed at a drawing must stop naming it.
+ * The memory adapter does this in-process (memory.ts, redactDrawingAudit);
+ * with loyalty on Supabase it is this statement instead.
+ */
+export async function redactDrawingAudit(ids: Set<string>): Promise<void> {
+  if (ids.size === 0) return;
+  const client = supabaseClient;
+  if (!client) throw new Error("Supabase client is not initialized.");
+
+  const targets = [...ids];
+  const { data, error } = await client
+    .from("audit_log")
+    .select("id, action")
+    .in("target", targets);
+  if (error) throw new Error(`Redact drawing audit failed: ${error.message}`);
+
+  // One statement per row: the summary quotes the row's own action, so there
+  // is nothing to batch. A campaign leaves hundreds of rows, not millions.
+  for (const row of data ?? []) {
+    const { error: failed } = await client
+      .from("audit_log")
+      .update({
+        target: "desen-sters",
+        summary: `${row.action}: acțiune pe un desen șters la finalul campaniei.`,
+        details: null,
+      })
+      .eq("id", row.id);
+    if (failed) throw new Error(`Redact drawing audit failed: ${failed.message}`);
+  }
 }

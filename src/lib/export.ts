@@ -104,7 +104,7 @@ function yesNo(value: boolean): string {
  * is Excel on Windows; every other tool accepts them too.
  */
 export function memberExportCsv(rows: MemberExportRow[]): string {
-  const lines = [
+  return csvFile([
     HEADER,
     ...rows.map((row) => [
       row.name,
@@ -123,10 +123,144 @@ export function memberExportCsv(rows: MemberExportRow[]): string {
       yesNo(row.blockedAt !== null),
       bucharestDate(row.createdAt),
     ]),
-  ];
+  ]);
+}
+
+function csvFile(lines: string[][]): string {
   return (
     BOM +
     lines.map((line) => line.map(csvField).join(SEPARATOR)).join("\r\n") +
     "\r\n"
   );
+}
+
+/* ---------------------------------------------- desene (concurs 2026) --- */
+
+/**
+ * One drawing entry, as stored. This export is the ONLY place the parent's
+ * name and phone leave the platform: the staff list never shows them, the
+ * manager downloads this file to call the selected families.
+ */
+export interface DrawingExportRow {
+  code: string;
+  locationName: string;
+  childFirstName: string;
+  childAge: number;
+  category: string;
+  parentName: string;
+  /** Canonical national format ("0740038569") — see lib/phone.ts. */
+  phone: string;
+  consentReproduction: boolean;
+  attribution: "first-name-age" | "none";
+  consentPhoto: boolean;
+  circleOptIn: boolean;
+  status: string;
+  registeredVia: "web" | "counter";
+  createdAt: string;
+  updatedAt: string;
+  /** Gallery columns; absent on rows built before the gallery existed. */
+  consentGallery?: boolean;
+  publishedAt?: string | null;
+  online?: boolean;
+  voteWinner?: boolean;
+}
+
+const DRAWING_HEADER = [
+  "Cod",
+  "Locație",
+  "Prenume copil",
+  "Vârstă",
+  "Categorie",
+  "Părinte",
+  "Telefon",
+  "Acord reproducere",
+  "Atribuire",
+  "Acord foto/video",
+  "Info Origins Circle",
+  "Stare",
+  "Înscris prin",
+  "Data înscrierii",
+  "Ultima modificare",
+  "Acord galerie online",
+  "Publicat online",
+  "În galerie acum",
+  "Câștigător vot public",
+];
+
+const ATTRIBUTION_LABEL = {
+  "first-name-age": "Prenume și vârstă",
+  none: "Fără prenume",
+};
+
+const VIA_LABEL = { web: "Web", counter: "Tejghea" };
+
+export function drawingExportCsv(rows: DrawingExportRow[]): string {
+  return csvFile([
+    DRAWING_HEADER,
+    ...rows.map((row) => [
+      row.code,
+      row.locationName,
+      row.childFirstName,
+      String(row.childAge),
+      row.category,
+      row.parentName,
+      formatPhone(row.phone),
+      yesNo(row.consentReproduction),
+      ATTRIBUTION_LABEL[row.attribution],
+      yesNo(row.consentPhoto),
+      yesNo(row.circleOptIn),
+      row.status,
+      VIA_LABEL[row.registeredVia],
+      bucharestDate(row.createdAt),
+      bucharestDate(row.updatedAt),
+      yesNo(row.consentGallery ?? false),
+      bucharestDate(row.publishedAt ?? null),
+      yesNo(row.online ?? false),
+      yesNo(row.voteWinner ?? false),
+    ]),
+  ]);
+}
+
+/* ------------------------------------------------- voturi (concurs 2026) --- */
+
+/**
+ * One vote. `emailHash` is the keyed hash from lib/vote-hash.ts: the file
+ * can show that two votes came from the same mailbox, never which mailbox.
+ */
+export interface VoteExportRow {
+  code: string;
+  category: string;
+  emailHash: string;
+  createdAt: string;
+}
+
+const voteTime = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIMEZONE,
+  hourCycle: "h23",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+/** "17.11.2026 18:04:09", Bucharest time. */
+function bucharestDateTime(at: string): string {
+  const parts = voteTime.formatToParts(new Date(at));
+  const find = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${find("day")}.${find("month")}.${find("year")} ${find("hour")}:${find("minute")}:${find("second")}`;
+}
+
+export function voteExportCsv(rows: VoteExportRow[]): string {
+  return csvFile([
+    ["Cod desen", "Categorie", "Amprentă e-mail", "Momentul votului"],
+    ...rows.map((row) => [
+      row.code,
+      row.category,
+      row.emailHash,
+      bucharestDateTime(row.createdAt),
+    ]),
+  ]);
 }

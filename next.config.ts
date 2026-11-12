@@ -1,10 +1,56 @@
 import type { NextConfig } from "next";
 
+/**
+ * Drawing photos (lib/storage/supabase-drawings.ts) and menu photos
+ * (lib/storage/supabase.ts) in Supabase Storage are absolute URLs under
+ * <SUPABASE_URL>/storage/v1/object/public/. Only that path of that host is
+ * allowed; nothing when Supabase is not configured.
+ * The local Docker stack (tools/campaign-db-local.sh) is on 127.0.0.1,
+ * which Next 16 refuses to optimise unless explicitly allowed — dev only.
+ */
+const storageUrl = (() => {
+  // One project serves both halves, and the menu's image store has always
+  // read the URL under its NEXT_PUBLIC name. Either spelling is accepted,
+  // so a deployment names the project once. Menu photos uploaded from the
+  // admin are absolute URLs on this same host and path.
+  const configured = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  try {
+    return configured ? new URL(configured) : null;
+  } catch {
+    return null;
+  }
+})();
+const storageIsLocal =
+  storageUrl !== null && ["127.0.0.1", "localhost", "::1"].includes(storageUrl.hostname);
+
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: storageUrl
+      ? [
+          {
+            protocol: storageUrl.protocol === "http:" ? "http" : "https",
+            hostname: storageUrl.hostname,
+            ...(storageUrl.port ? { port: storageUrl.port } : {}),
+            pathname: "/storage/v1/object/public/**",
+          },
+        ]
+      : [],
+    dangerouslyAllowLocalIP: storageIsLocal && process.env.NODE_ENV !== "production",
+  },
   // The parent agency repo has its own lockfile; pin the root to this app so
   // Turbopack does not infer the wrong workspace.
   turbopack: {
     root: import.meta.dirname,
+  },
+  // Dev only: the campaign host is tested as http://xmas.localhost:4320
+  // (CAMPAIGN_HOST=xmas.localhost:4320); without this Next refuses its own
+  // dev assets to another hostname.
+  allowedDevOrigins: ["*.localhost"],
+  // The contest's legal texts are read from disk at request time
+  // (lib/contest-docs.ts), so the production file trace must carry them.
+  outputFileTracingIncludes: {
+    "/desene/regulament": ["./content/concurs/*.md"],
+    "/desene/confidentialitate": ["./content/concurs/*.md"],
   },
   experimental: {
     // Menu photos are uploaded through a Server Action, and the default action
@@ -14,14 +60,6 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "9mb",
     },
-  },
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "*.supabase.co",
-      },
-    ],
   },
 };
 

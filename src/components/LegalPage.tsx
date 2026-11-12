@@ -12,6 +12,8 @@ import SiteFooter from "./SiteFooter";
  */
 
 export interface LegalSection {
+  /** Anchor target, e.g. "desen" for /confidentialitate#desen. */
+  id?: string;
   heading: I18nText | null;
   /** Each entry renders as one paragraph. */
   body: I18nText[];
@@ -41,7 +43,11 @@ export default function LegalPage({
         </h1>
 
         {sections.map((section, i) => (
-          <section key={i} className={i > 0 ? "mt-5" : undefined}>
+          <section
+            key={i}
+            id={section.id}
+            className={i > 0 ? "mt-5 scroll-mt-4" : undefined}
+          >
             {section.heading && (
               <h2 className="mb-1.5 text-[15px] font-bold text-ink">
                 {tx(section.heading, lang)}

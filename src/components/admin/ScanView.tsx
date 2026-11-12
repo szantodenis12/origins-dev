@@ -8,6 +8,7 @@ import {
   addStampAction,
   forgetMemberAction,
   lookupMemberAction,
+  memberCardQrAction,
   redeemRewardAction,
   reissuePassSerialAction,
   reviewBonusAction,
@@ -16,6 +17,7 @@ import {
   withdrawMarketingConsentAction,
 } from "@/app/admin/actions";
 import type {
+  CardQr,
   MemberPanel as Panel,
   PanelNotice,
   PanelResult,
@@ -103,6 +105,18 @@ export default function ScanView({ manager }: { manager: boolean }) {
     [apply, panel],
   );
 
+  const fetchCardQr = useCallback(async (): Promise<CardQr | null> => {
+    if (!panel) return null;
+    try {
+      const result = await memberCardQrAction(panel.memberId);
+      if (result.ok) return result.qr;
+      setError(messageFor(result.reason, panel.passSerial));
+    } catch {
+      setError(strings.failed);
+    }
+    return null;
+  }, [panel]);
+
   const reset = useCallback(() => {
     busyRef.current = false;
     setPanel(null);
@@ -175,6 +189,7 @@ export default function ScanView({ manager }: { manager: boolean }) {
           }
           onForget={() => void forget()}
           onReset={reset}
+          onCardQr={fetchCardQr}
         />
       </>
     );

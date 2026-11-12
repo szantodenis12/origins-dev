@@ -26,3 +26,9 @@
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+
+# Menu photos uploaded from the admin (local image store, see lib/storage)
+/public/photos/uploads/
+
+# Drawing contest originals (local file store, see lib/storage/drawings.ts)
+/.data/

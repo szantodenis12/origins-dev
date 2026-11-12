@@ -6,28 +6,50 @@ import {
   BarChart3,
   BellRing,
   Coffee,
+  Palette,
   ScanLine,
   SlidersHorizontal,
   Users,
 } from "lucide-react";
+import type { StaffRole } from "@/lib/db";
 
 /** Staff screen: Romanian only. */
-const TABS = [
+const MANAGER_TABS = [
   { href: "/admin/scan", label: "Scanare", Icon: ScanLine },
   { href: "/admin/meniu", label: "Meniu", Icon: Coffee },
   { href: "/admin/push", label: "Push", Icon: BellRing },
   { href: "/admin/statistici", label: "Statistici", Icon: BarChart3 },
   { href: "/admin/echipa", label: "Echipă", Icon: Users },
   { href: "/admin/setari", label: "Program", Icon: SlidersHorizontal },
+  { href: "/admin/desene", label: "Desene", Icon: Palette },
 ];
 
-/** Tab row shown only to managers; baristas keep the scan-only screen. */
-export default function ManagerNav() {
+/**
+ * The barista screen stays scan-first; the drawing contest is the one other
+ * place a barista works from (register at the counter, mark "depus").
+ */
+const BARISTA_TABS = [
+  { href: "/admin/scan", label: "Scanare", Icon: ScanLine },
+  { href: "/admin/desene", label: "Desene", Icon: Palette },
+];
+
+/** Tab row: the full manager set, or the two tabs a barista needs. */
+export default function ManagerNav({
+  role = "manager",
+  drawings = true,
+}: {
+  role?: StaffRole;
+  /** False once the contest has its own host: the drawings live in the campaign panel. */
+  drawings?: boolean;
+}) {
   const pathname = usePathname();
+  const tabs = (role === "manager" ? MANAGER_TABS : BARISTA_TABS).filter(
+    (tab) => drawings || tab.href !== "/admin/desene",
+  );
 
   return (
     <nav className="flex gap-1.5 overflow-x-auto border-b border-line px-5 py-2.5">
-      {TABS.map(({ href, label, Icon }) => {
+      {tabs.map(({ href, label, Icon }) => {
         const active = pathname.startsWith(href);
         return (
           <Link

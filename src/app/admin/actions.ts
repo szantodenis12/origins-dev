@@ -1,17 +1,22 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
+import QRCode from "qrcode";
 import { getDb } from "@/lib/db";
 import type { StaffSession } from "@/lib/db";
 import {
   buildPanel,
   normalizeSerial,
+  type CardQrResult,
   type PanelNotice,
   type PanelResult,
 } from "@/lib/admin/panel";
+import { appOrigin, cardUrl } from "@/lib/app-url";
 import { recordAdminAudit } from "@/lib/admin/audit";
 import {
   clearStaffSession,
+  onCampaignHost,
   readStaffSession,
   roleForPin,
   staffLocations,
@@ -41,6 +46,9 @@ const strings = {
     "Legitimația este validată. Cardul Student Circle este activ.",
   // A blocked card refuses everything; the panel already says since when.
   memberBlocked: "Cardul e blocat. Nu se adaugă ștampile și nu se predau recompense.",
+  // A phone number is not proof of identity: anyone who knows it can have a
+  // card opened. The name on the screen is the check, so the screen asks.
+  foundByPhone: "Găsit după telefon. Confirmă numele cu clientul.",
   blocked: "Card blocat. QR-ul nu mai adună ștampile.",
   unblocked: "Card deblocat. Ștampilele merg mai departe.",
   reissued:
@@ -67,6 +75,9 @@ async function panelResult(
 /* ----------------------------------------------------------------- auth --- */
 
 export async function loginAction(formData: FormData): Promise<void> {
+  // No Origins login on the campaign host, even by a direct POST.
+  if (await onCampaignHost()) notFound();
+
   const pin = String(formData.get("pin") ?? "").trim();
   const locationSlug = String(formData.get("locationSlug") ?? "");
 
@@ -107,7 +118,11 @@ export async function lookupMemberAction(raw: string): Promise<PanelResult> {
   if (phone) {
     const member = await db.findMemberByPhone(phone);
     if (!member) return { ok: false, reason: "not_found" };
-    return panelResult(member.id, session);
+    return panelResult(member.id, session, {
+      tone: "info",
+      icon: "person",
+      text: strings.foundByPhone,
+    });
   }
 
   const serial = normalizeSerial(raw);
@@ -117,6 +132,45 @@ export async function lookupMemberAction(raw: string): Promise<PanelResult> {
   if (!member) return { ok: false, reason: "not_found" };
 
   return panelResult(member.id, session);
+}
+
+/**
+ * The member's card link as a QR, for the member to scan off the barista's
+ * screen. Spec §6.4 reopens a lost card in the admin, but the link is a UUID
+ * on the shop's phone — without this it cannot get back to the member's own.
+ *
+ * Built per request rather than carried on every panel: the barista needs it
+ * once in a while, and every stamp would otherwise ship an unused SVG.
+ */
+export async function memberCardQrAction(
+  memberId: string,
+): Promise<CardQrResult> {
+  const session = await readStaffSession();
+  if (!session) return { ok: false, reason: "unauthorized" };
+
+  const member = await getDb().getMember(memberId);
+  if (!member) return { ok: false, reason: "not_found" };
+
+  // APP_URL only has to be set if the app ever sits behind a host it cannot
+  // read off the request; on Vercel the forwarded host is the right one.
+  const origin = appOrigin(
+    await headers(),
+    process.env.APP_URL,
+    process.env.NODE_ENV === "production",
+  );
+  if (!origin) return { ok: false, reason: "failed" };
+
+  const url = cardUrl(origin, member.id);
+  const svg = await QRCode.toString(url, {
+    type: "svg",
+    margin: 0,
+    // Read off a screen, in a hurry, under café lighting: more redundancy
+    // than the card face carries, which is scanned the other way around.
+    errorCorrectionLevel: "Q",
+    color: { dark: "#1c1d1a", light: "#ffffff" },
+  });
+
+  return { ok: true, qr: { url, svg } };
 }
 
 export async function addStampAction(memberId: string): Promise<PanelResult> {

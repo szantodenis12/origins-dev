@@ -13,6 +13,13 @@
   --color-open: #3fa25f;
   --color-star: #f5b942;
 
+  /* Public contest pages (/desene): white, ink, and Origins green as the
+     single accent (active pills, vote button hover). */
+  --color-o-ink: #121212;
+  --color-o-green: #1f4d3a;
+  /* The neutral "wall" behind a drawing: the sheets are white themselves. */
+  --color-o-wall: #f3f3f1;
+
   --font-sans: var(--font-inter-tight), sans-serif;
   --font-serif: var(--font-fraunces), Georgia, serif;
 
@@ -40,4 +47,85 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
+}
+
+/* ------------------------------------------------------------------ motion
+
+   One curve for everything that enters the page. The easings built into CSS
+   are too weak to read as a decision; this one leaves fast and settles. */
+@theme {
+  --ease-rise: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Sections rise into place as they come into view; `is-in` is added by
+   components/Reveal.tsx. Only opacity and transform move, so the work stays
+   off the main thread, and a `stagger` container hands the motion to its
+   children one after another instead of moving as a block. */
+[data-reveal="section"],
+[data-reveal="stagger"] > * {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 560ms var(--ease-rise),
+    transform 560ms var(--ease-rise);
+}
+
+[data-reveal="section"].is-in,
+[data-reveal="stagger"].is-in > * {
+  opacity: 1;
+  transform: none;
+}
+
+/* Reduced motion keeps the page, drops the movement: the content is simply
+   there. Smooth scrolling goes too — it is motion the reader did not ask
+   for, over a distance they did not choose. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  [data-reveal="section"],
+  [data-reveal="stagger"] > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* A question opens and closes instead of jumping. A native <details> has no
+   motion of its own: the answer is simply not laid out until it is, which is
+   what made it feel abrupt.
+
+   Height is normally the one thing not worth animating, but an accordion has
+   nothing else to animate: the reveal IS the height. `interpolate-size` is
+   what allows a height of `auto` to be a transition endpoint at all, and
+   `allow-discrete` keeps the answer on screen while it closes rather than
+   cutting it at the first frame. Where a browser does not support either,
+   the panel appears the way it did before, which is a fair floor.
+
+   It is a transition, not a keyframe animation, so a second click part-way
+   through turns the panel around from where it is. */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    interpolate-size: allow-keywords;
+  }
+
+  [data-accordion]::details-content {
+    block-size: 0;
+    overflow: clip;
+    opacity: 0;
+    transition:
+      block-size 300ms var(--ease-rise),
+      opacity 200ms var(--ease-rise),
+      content-visibility 300ms allow-discrete;
+  }
+
+  [data-accordion][open]::details-content {
+    block-size: auto;
+    opacity: 1;
+  }
 }

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { LogIn, TriangleAlert } from "lucide-react";
 import LocationSelect from "@/components/admin/LocationSelect";
 import PhoneFrame from "@/components/PhoneFrame";
-import { readStaffSession, staffLocations } from "@/lib/admin/session";
+import { onCampaignHost, readStaffSession, staffLocations } from "@/lib/admin/session";
 import { loginAction } from "./actions";
 
 // Staff screen: Romanian only, never indexed.
@@ -35,6 +35,9 @@ export default async function AdminLoginPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  // The Origins admin has no door on the campaign host (see onCampaignHost).
+  if (await onCampaignHost()) notFound();
+
   const session = await readStaffSession();
   if (session) redirect("/admin/scan");
 
