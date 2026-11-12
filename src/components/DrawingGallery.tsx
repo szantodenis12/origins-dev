@@ -444,28 +444,40 @@ export function DrawingCard({
 }
 
 /**
- * The hero image: the Christmas cup, whole and uncropped.
+ * The hero: the Christmas cup across the full width of the page.
  *
- * It replaced the panoramic strip of five turned panels (Roland, 12.11.2026):
- * one photograph, nothing around it. The photo is a portrait with its own
- * dark-green vignette, so it is never cropped to a band and never stretched
- * edge to edge - it is sized by height and centred, and the page's white
- * wall is left to frame it.
+ * Roland asked for the photograph alone (12.11.2026), no panels. Dropped
+ * into the white page it read as a stray rectangle, so the photo's own
+ * background is continued instead: BAND is its vertical colour profile,
+ * sampled down its left edge, and the photo is laid on top with its sides
+ * faded out. The seam disappears and the hero becomes one dark band, which
+ * is also the only dark surface above the fold for the snow to fall on.
  *
- * alt is empty on purpose: the h1 directly above says exactly what this
- * shows, and a screen reader should not hear the same sentence twice.
+ * The photo is a portrait: it is sized by height and never cropped, so the
+ * cup is whole on a phone and on a wide screen alike.
+ *
+ * alt is empty on purpose: the h1 directly above says what the photo shows,
+ * and a screen reader should not hear the same sentence twice.
  */
+const BAND =
+  "linear-gradient(180deg,#0d2c24 0%,#103128 25%,#10342a 50%,#0d2e27 75%,#092621 90%,#041713 100%)";
+
+/** Sides faded so the photo meets the band without an edge. */
+const BAND_FADE =
+  "linear-gradient(90deg,transparent 0%,#000 14%,#000 86%,transparent 100%)";
+
 function HeroCup() {
   return (
-    <div className="relative z-20 flex justify-center px-[4%] py-2 sm:py-5 lg:py-8">
+    <div className="relative z-20 w-full overflow-x-clip" style={{ background: BAND }}>
       <Image
         src="/cup/pahar-craciun-2026.jpg"
         alt=""
         width={1122}
         height={1402}
         priority
-        sizes="(min-width: 1024px) 460px, 70vw"
-        className="h-[300px] w-auto sm:h-[400px] lg:h-[500px] xl:h-[560px]"
+        sizes="(min-width: 1024px) 500px, (min-width: 640px) 390px, 290px"
+        className="mx-auto h-[360px] w-auto sm:h-[480px] lg:h-[620px]"
+        style={{ WebkitMaskImage: BAND_FADE, maskImage: BAND_FADE }}
       />
     </div>
   );
