@@ -12,6 +12,7 @@ import {
   VOTE_CODE_TTL_MS,
 } from "@/lib/drawing-vote";
 import { getMailer } from "@/lib/mailer";
+import { mailLogoUrl, voteCodeMail } from "@/lib/mailer/vote-email";
 import type { Lang } from "@/lib/types";
 import {
   generateVoteCode,
@@ -64,32 +65,7 @@ export type VoteResult =
   | { ok: true; status: "voted" | "already_voted" }
   | { ok: false; error: VoteError; attemptsLeft?: number };
 
-const MAIL_COPY: Record<Lang, (code: string, drawing: string) => { subject: string; text: string }> = {
-  ro: (code, drawing) => ({
-    subject: `Codul tău de vot: ${code}`,
-    text:
-      `Codul tău pentru votul de la Origins: ${code}\n\n` +
-      `E valabil 15 minute, pentru desenul ${drawing}.\n\n` +
-      `Dacă nu ai cerut tu codul, ignoră mesajul. Nu îți trimitem alte mesaje.\n\n` +
-      `Origins Coffee & Drinks`,
-  }),
-  hu: (code, drawing) => ({
-    subject: `A szavazókódod: ${code}`,
-    text:
-      `A kódod az Origins rajzpályázat szavazásához: ${code}\n\n` +
-      `15 percig érvényes, és a(z) ${drawing} rajzra szól.\n\n` +
-      `Ha nem te kérted a kódot, hagyd figyelmen kívül ezt az üzenetet. A címedet nem őrizzük meg, és nem küldünk reklámot.\n\n` +
-      `Origins Coffee & Drinks`,
-  }),
-  en: (code, drawing) => ({
-    subject: `Your voting code: ${code}`,
-    text:
-      `Your code for the Origins drawing contest vote: ${code}\n\n` +
-      `It is valid for 15 minutes and is for drawing ${drawing}.\n\n` +
-      `If you did not ask for it, ignore this message. We do not keep your address and we send no marketing.\n\n` +
-      `Origins Coffee & Drinks`,
-  }),
-};
+const MAIL_LANGS = { ro: true, hu: true, en: true } as const;
 
 /** The live, votable entry behind a public code, or the reason there is none. */
 async function votableEntry(
@@ -154,11 +130,17 @@ export async function requestVoteCodeAction(input: {
 
   // Sent to the address as typed (trimmed), not the folded one: the mailbox
   // is the same, but it is the spelling its owner expects to see.
-  const copy = (MAIL_COPY[input.lang] ?? MAIL_COPY.ro)(code, target.entry.code);
+  const copy = voteCodeMail(
+    input.lang in MAIL_LANGS ? input.lang : "ro",
+    code,
+    target.entry.code,
+    mailLogoUrl({ APP_URL: process.env.APP_URL, MAIN_APP_URL: process.env.MAIN_APP_URL }),
+  );
   const sent = await mailer.send({
     to: String(input.email).trim(),
     subject: copy.subject,
     text: copy.text,
+    html: copy.html,
   });
   if (!sent.ok) {
     // The reason only: never the address, never the code.
