@@ -255,16 +255,28 @@ export function ContestHeader({
   return (
     <>
       <header className={`${WRAP} relative z-20 flex items-center justify-between gap-3 py-3 lg:py-5`}>
-        <Link href="/desene" aria-label="Origins Coffee & Drinks" className={`shrink-0 rounded ${FOCUS}`}>
-          <Image
-            src="/brand/logo-ink.png"
-            alt="Origins Coffee & Drinks"
-            width={334}
-            height={178}
-            priority
-            className="h-[34px] w-auto lg:h-[44px]"
-          />
-        </Link>
+        {/*
+          The two outer groups share the leftover width equally so the pill
+          sits on the middle of the page. The logo is narrower than the
+          language switch, and `justify-between` on its own centred the pill
+          between them instead — visibly left of centre.
+        */}
+        <div className="flex min-w-0 flex-1 items-center">
+          <Link
+            href="/desene"
+            aria-label="Origins Coffee & Drinks"
+            className={`shrink-0 rounded ${FOCUS}`}
+          >
+            <Image
+              src="/brand/logo-ink.png"
+              alt="Origins Coffee & Drinks"
+              width={334}
+              height={178}
+              priority
+              className="h-[34px] w-auto lg:h-[44px]"
+            />
+          </Link>
+        </div>
 
         <nav
           aria-label={t("navLabel")}
@@ -284,7 +296,7 @@ export function ContestHeader({
           ))}
         </nav>
 
-        <div className="flex items-center gap-1 lg:gap-3">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1 lg:gap-3">
           <div role="group" aria-label={t("langLabel")} className="flex text-[12px] font-semibold">
             {LANGS.map((l) => (
               <button
