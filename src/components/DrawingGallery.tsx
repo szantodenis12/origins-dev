@@ -444,41 +444,48 @@ export function DrawingCard({
 }
 
 /**
- * The hero: the Christmas cup across the full width of the page.
+ * The hero: the Christmas cup, cut out and lit.
  *
- * Roland asked for the photograph alone (12.11.2026), no panels. Dropped
- * into the white page it read as a stray rectangle, so the photo's own
- * background is continued instead: BAND is its vertical colour profile,
- * sampled down its left edge, and the photo is laid on top with its sides
- * faded out. The seam disappears and the hero becomes one dark band, which
- * is also the only dark surface above the fold for the snow to fall on.
+ * Roland asked for the photograph alone (12.11.2026), no panels of
+ * drawings. Three tries failed for one reason: the photo was placed as a
+ * rectangle. On the white page it was a stray tile; stretched edge to
+ * edge it was a slab of green; set inside a panel, its own vignette
+ * showed as a lighter box no background could be matched to.
  *
- * The photo is a portrait: it is sized by height and never cropped, so the
- * cup is whole on a phone and on a wide screen alike.
+ * So the cup no longer carries a background at all. It is cut out of the
+ * photograph (public/cup/pahar-craciun-2026-decupat.png: the shot's green
+ * wall is green-dominant everywhere along its gradient, the cup is paper
+ * or lid-black, and the green inside the cup is walled in from the frame's
+ * edge) and stood in a panel this page already knows how to draw: the same
+ * radius and column as the facts strip below, the same `data-snow="dark"`
+ * so the snow turns light over it. PANEL is the lit room, the drop shadow
+ * puts the cup on the floor of it, and there is no seam left to find.
  *
- * alt is empty on purpose: the h1 directly above says what the photo shows,
- * and a screen reader should not hear the same sentence twice.
+ * alt is empty on purpose: the h1 directly above says what the photo
+ * shows, and a screen reader should not hear the same sentence twice.
  */
-const BAND =
-  "linear-gradient(180deg,#0d2c24 0%,#103128 25%,#10342a 50%,#0d2e27 75%,#092621 90%,#041713 100%)";
-
-/** Sides faded so the photo meets the band without an edge. */
-const BAND_FADE =
-  "linear-gradient(90deg,transparent 0%,#000 14%,#000 86%,transparent 100%)";
+const PANEL =
+  "radial-gradient(115% 100% at 50% 14%,#1b4537 0%,#12382c 40%,#0b2821 72%,#051710 100%)";
 
 function HeroCup() {
   return (
-    <div className="relative z-20 w-full overflow-x-clip" style={{ background: BAND }}>
-      <Image
-        src="/cup/pahar-craciun-2026.jpg"
-        alt=""
-        width={1122}
-        height={1402}
-        priority
-        sizes="(min-width: 1024px) 500px, (min-width: 640px) 390px, 290px"
-        className="mx-auto h-[360px] w-auto sm:h-[480px] lg:h-[620px]"
-        style={{ WebkitMaskImage: BAND_FADE, maskImage: BAND_FADE }}
-      />
+    <div className={WRAP}>
+      <div
+        data-snow="dark"
+        className="relative overflow-hidden rounded-[28px] px-6 py-10 sm:py-14 lg:rounded-[40px] lg:py-20"
+        style={{ background: PANEL }}
+      >
+        <Image
+          src="/cup/pahar-craciun-2026-decupat.png"
+          alt=""
+          width={553}
+          height={837}
+          priority
+          sizes="(min-width: 1024px) 360px, (min-width: 640px) 280px, 215px"
+          className="mx-auto h-[270px] w-auto sm:h-[350px] lg:h-[440px]"
+          style={{ filter: "drop-shadow(0 26px 34px rgba(0,0,0,0.5))" }}
+        />
+      </div>
     </div>
   );
 }
