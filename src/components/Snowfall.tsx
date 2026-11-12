@@ -33,10 +33,13 @@ import { useEffect, useRef } from "react";
  * Quiet by design:
  *   - neither canvas ever takes a click (pointer-events: none);
  *   - both stop while the tab is hidden;
- *   - neither starts under `prefers-reduced-motion`, nor on a modest device
- *     (4 CPU cores or fewer, or 4 GB of memory or less): a decoration must
- *     never cost a parent's phone its battery;
- *   - on phones: fewer flakes, drawn at 30 frames a second.
+ *   - neither starts under `prefers-reduced-motion`;
+ *   - on phones: fewer flakes, drawn at 30 frames a second;
+ *   - the frame budget is watched rather than guessed. Asking the device
+ *     what it is made of does not work: Safari reports four cores on every
+ *     iPhone, so a core count turned the snow off on hardware that could
+ *     carry it several times over. A device that cannot keep up gets half
+ *     the flakes, and then none — measured, not assumed.
  */
 
 interface Flake {
@@ -87,9 +90,6 @@ export default function Snowfall() {
     const frontCtx = front?.getContext("2d");
     if (!back || !front || !backCtx || !frontCtx) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const device = navigator as Navigator & { deviceMemory?: number };
-    if (device.hardwareConcurrency !== undefined && device.hardwareConcurrency <= 4) return;
-    if (device.deviceMemory !== undefined && device.deviceMemory <= 4) return;
 
     const white = makeSprite(ON_DARK);
     const grey = makeSprite(ON_WHITE);
@@ -97,6 +97,14 @@ export default function Snowfall() {
     // Phones draw every other frame at most (30 fps); desktops follow the display.
     let minFrameMs = 0;
     let lastDraw = 0;
+
+    /* The frame budget, watched. The first frames are skipped: the page is
+       still settling then, and that jank says nothing about the device. */
+    const WARMUP = 40;
+    const WINDOW = 60;
+    let seen = 0;
+    let slowInWindow = 0;
+    let steps = 0;
 
     let width = 0;
     let height = 0;
@@ -148,6 +156,10 @@ export default function Snowfall() {
       const ahead = phone ? 4 : 7;
       backFlakes = Array.from({ length: behind }, () => makeFlake(false, true));
       frontFlakes = Array.from({ length: ahead }, () => makeFlake(true, true));
+      // New flake counts, so the judgement about this device starts again.
+      seen = 0;
+      slowInWindow = 0;
+      steps = 0;
       measure();
     };
 
@@ -226,6 +238,29 @@ export default function Snowfall() {
       const wind = Math.sin(now * 0.00012) * 0.7 + Math.sin(now * 0.00041) * 0.3;
       drawLayer(backCtx, backFlakes, dt, wind, false);
       drawLayer(frontCtx, frontFlakes, dt, wind, true);
+
+      // A frame half again over budget is a dropped one. Enough of those in
+      // a row and the snow thins itself out; if that is still not enough it
+      // leaves, because no decoration is worth a stuttering page.
+      seen += 1;
+      if (seen > WARMUP) {
+        if (dt * 1000 > (minFrameMs || 1000 / 60) * 1.5) slowInWindow += 1;
+        if ((seen - WARMUP) % WINDOW === 0) {
+          if (slowInWindow > WINDOW / 3) {
+            steps += 1;
+            if (steps === 1) {
+              backFlakes = backFlakes.slice(0, Math.ceil(backFlakes.length / 2));
+              frontFlakes = frontFlakes.slice(0, Math.ceil(frontFlakes.length / 2));
+            } else {
+              cancelAnimationFrame(frame);
+              backCtx.clearRect(0, 0, back.width, back.height);
+              frontCtx.clearRect(0, 0, front.width, front.height);
+              return;
+            }
+          }
+          slowInWindow = 0;
+        }
+      }
       frame = requestAnimationFrame(tick);
     };
 
