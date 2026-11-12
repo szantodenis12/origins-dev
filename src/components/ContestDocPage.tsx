@@ -219,7 +219,7 @@ export default function ContestDocPage({
           {toc.length > 0 && (
             <>
               {/* Phone: the contents fold away under the title. */}
-              <details className="group mt-6 rounded-2xl border border-o-ink/15 px-4 lg:hidden">
+              <details data-accordion className="group mt-6 rounded-2xl border border-o-ink/15 px-4 lg:hidden">
                 <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between text-[16px] font-semibold [&::-webkit-details-marker]:hidden">
                   Cuprins
                   <span className="text-[13.5px] font-normal text-o-ink/55">{toc.length} secțiuni</span>

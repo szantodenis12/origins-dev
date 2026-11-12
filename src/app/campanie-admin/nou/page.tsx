@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import CampaignCounterForm from "@/components/campaign-admin/CampaignCounterForm";
 import Shell from "@/components/campaign-admin/Shell";
+import { COLUMN } from "@/components/campaign-admin/ui";
 import { readCampaignRole } from "@/lib/admin/drawing-access";
 import { CONTEST_LOCATIONS } from "@/lib/drawing";
 
@@ -16,7 +17,9 @@ export default async function CampaignCounterPage() {
   if (!role) redirect("/admin");
   return (
     <Shell role={role} active="nou">
-      <CampaignCounterForm locations={CONTEST_LOCATIONS.map(({ slug, name }) => ({ slug, name }))} />
+      <div className={COLUMN}>
+        <CampaignCounterForm locations={CONTEST_LOCATIONS.map(({ slug, name }) => ({ slug, name }))} />
+      </div>
     </Shell>
   );
 }

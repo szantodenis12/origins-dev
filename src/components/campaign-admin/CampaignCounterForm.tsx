@@ -40,8 +40,9 @@ export default function CampaignCounterForm({
         <SheetKindPicker value={sheetKind} onChange={setSheetKind} />
       </div>
 
-      <div className="-mx-5 mt-4">
+      <div className="mt-4">
         <DrawingForm
+          flush
           action={register}
           strings={counterStrings.form}
           locations={locations}
@@ -51,7 +52,7 @@ export default function CampaignCounterForm({
             const locationName =
               locations.find((item) => item.slug === done.location)?.name ?? done.location;
             return (
-              <section className="flex flex-col gap-3 px-5">
+              <section className="flex flex-col gap-3">
                 <div className="rounded-3xl border-2 border-o-ink p-6">
                   <p className="text-[15px] font-semibold text-o-ink/65">{counterStrings.done}</p>
                   <p className="mt-2 text-[64px] leading-none font-extrabold tracking-[-0.02em] tabular-nums">

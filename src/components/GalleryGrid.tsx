@@ -222,7 +222,7 @@ export default function GalleryGrid({
               : t("galEmpty")}
         </p>
       ) : (
-        <ul className="mt-4 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-6 sm:gap-y-10 lg:mt-6 lg:grid-cols-3 xl:grid-cols-4">
+        <ul data-reveal="stagger" className="mt-4 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-6 sm:gap-y-10 lg:mt-6 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {visible.map((drawing, index) => (
             <li key={drawing.code}>
               <DrawingCard

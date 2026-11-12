@@ -27,6 +27,7 @@ import type { PublicResults } from "@/lib/campaign-results";
 import type { Lang } from "@/lib/types";
 import { rememberChannel, trackEvent } from "./campaign-track";
 import GalleryGrid from "./GalleryGrid";
+import Reveal from "./Reveal";
 import Snowfall from "./Snowfall";
 
 /**
@@ -51,8 +52,8 @@ import Snowfall from "./Snowfall";
  * Order of the grid comes from the server and is never by votes. The page
  * counts drawings; it never counts votes.
  *
- * Everything that must stay clear of the snow layer (drawings, the cup,
- * cards, buttons) is `relative z-20`; see Snowfall.tsx.
+ * The snow falls behind the words: every column (WRAP) is `relative z-20`,
+ * which puts it above the back canvas. See Snowfall.tsx.
  */
 
 export type T = (key: keyof typeof ui) => string;
@@ -140,6 +141,11 @@ export function ContestFrame({
             {tx(ui.skipToContent, lang)}
           </a>
           {snow && <Snowfall />}
+          <Reveal />
+          <noscript>
+            {/* Nothing on this page may depend on JavaScript to be seen. */}
+            <style>{`[data-reveal="section"],[data-reveal="stagger"]>*{opacity:1;transform:none}`}</style>
+          </noscript>
           {children}
         </div>
       </PhaseContext.Provider>
@@ -148,7 +154,11 @@ export function ContestFrame({
 }
 
 /** The column every section sits in. */
-export const WRAP = "mx-auto w-full max-w-[1240px] px-4 sm:px-5 md:px-8";
+export const WRAP =
+  "relative z-20 mx-auto w-full max-w-[1560px] px-4 sm:px-6 md:px-10 lg:px-14";
+/** Prose stops short of the column. Past roughly seventy characters the eye
+ *  loses the start of the next line, and the page is wide now. */
+export const PROSE = "max-w-[640px]";
 /** Black pill button; green on hover. */
 export const PILL =
   "relative z-20 inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-o-ink px-6 py-3 text-[12px] font-semibold tracking-[0.06em] text-white uppercase transition-colors hover:bg-o-green";
@@ -413,7 +423,7 @@ function Panorama({
 
   return (
     <div className="relative z-20 overflow-x-clip py-4 sm:py-8 lg:py-12">
-      <div className="mx-auto flex h-[130px] w-full max-w-[1320px] items-stretch gap-1 px-[7%] sm:h-[210px] lg:h-[300px] lg:gap-2 xl:h-[340px]">
+      <div className="mx-auto flex h-[130px] w-full max-w-[1560px] items-stretch gap-1 px-[4%] sm:h-[210px] lg:h-[300px] lg:gap-2 xl:h-[340px]">
         {slots.map((slot, index) => {
           const panel = PANELS[index];
           const target = slot === "cup" ? cup! : slot;
@@ -574,6 +584,10 @@ export function ContestFooter({ flat = false }: { flat?: boolean }) {
     { href: docs.privacy, label: t("siteLinkPrivacy") },
   ];
   const linkClass = `relative z-20 inline-flex min-h-[32px] items-center hover:text-white ${FOCUS}`;
+  // The agency credit carries a link in the middle of a sentence, and the
+  // three languages do not put it in the same place. Splitting the
+  // translated line on the name keeps the word order each language needs.
+  const [creditBefore, creditAfter] = t("credit").split("Epic Digital Hub");
   return (
     <footer
       data-snow="dark"
@@ -627,6 +641,20 @@ export function ContestFooter({ flat = false }: { flat?: boolean }) {
           </ul>
         </div>
       </div>
+      <div
+        className={`${WRAP} flex flex-wrap items-center gap-x-1 gap-y-1 border-t border-white/12 py-5 text-[13px] leading-[1.6] text-white/55`}
+      >
+        {creditBefore}
+        <a
+          href="https://epicdigitalhub.ro"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${linkClass} underline decoration-white/30 underline-offset-4 hover:decoration-white`}
+        >
+          Epic Digital Hub
+        </a>
+        {creditAfter}
+      </div>
     </footer>
   );
 }
@@ -647,6 +675,7 @@ function Results({
   const t: T = (key) => tx(ui[key], lang);
   return (
     <section
+      data-reveal="section"
       id="rezultate"
       aria-labelledby="rezultate-titlu"
       data-snow="dark"
@@ -683,7 +712,7 @@ function Results({
           );
         })}
 
-        <div className="mt-12 grid gap-4 border-t border-white/15 pt-6 text-[15.5px] leading-[1.6] text-white/85 lg:grid-cols-2 lg:gap-12">
+        <div className="mt-12 grid max-w-[1180px] gap-4 border-t border-white/15 pt-6 text-[15.5px] leading-[1.6] text-white/85 lg:grid-cols-2 lg:gap-12">
           {phase === "collection" ? (
             <>
               <p>
@@ -730,13 +759,14 @@ function HowToJoin({ phase }: { phase: CampaignPhase }) {
   const steps = [1, 2, 3, 4, 5] as const;
   return (
     <section
+      data-reveal="section"
       ref={ref}
       id="cum-participi"
       aria-labelledby="cum-participi-titlu"
       className={`${WRAP} scroll-mt-14 pt-12 lg:pt-24`}
     >
       <div className="grid gap-10 lg:grid-cols-12 lg:gap-16">
-        <div className="lg:col-span-7">
+        <div className={`${PROSE} lg:col-span-7`}>
           <Stagger id="cum-participi-titlu" align="left" size="sm" a={t("h2JoinA")} b={t("h2JoinB")} />
           <ol className="mt-6 border-b border-o-ink/12">
             {steps.map((n) => (
@@ -785,6 +815,7 @@ function WhatsNext({ phase }: { phase: CampaignPhase }) {
   const t: T = (key) => tx(ui[key], lang);
   return (
     <section
+      data-reveal="section"
       id="cum-participi"
       aria-labelledby="ce-urmeaza-titlu"
       className={`${WRAP} scroll-mt-14 pt-12 lg:pt-24`}
@@ -793,7 +824,7 @@ function WhatsNext({ phase }: { phase: CampaignPhase }) {
         <div className="lg:col-span-5">
           <Stagger id="ce-urmeaza-titlu" align="left" size="sm" a={t("h2NextA")} b={t("h2NextB")} />
         </div>
-        <div className="text-[16px] leading-[1.6] text-o-ink/85 lg:col-span-7 lg:pt-2 lg:text-[17px]">
+        <div className={`${PROSE} text-[16px] leading-[1.6] text-o-ink/85 lg:col-span-7 lg:pt-2 lg:text-[17px]`}>
           <p>{phase === "voting_only" ? t("nextVoting") : t("nextSelection")}</p>
           <p className="mt-3">{t("siteCup")}</p>
         </div>
@@ -827,7 +858,7 @@ function FactsBand({ phase }: { phase: CampaignPhase }) {
         ];
 
   return (
-    <section data-snow="dark" className="mt-6 rounded-[28px] bg-o-ink text-white lg:mt-10 lg:rounded-[40px]">
+    <section data-reveal="section" data-snow="dark" className="mt-6 rounded-[28px] bg-o-ink text-white lg:mt-10 lg:rounded-[40px]">
       <ul
         className={`${WRAP} grid grid-cols-2 gap-x-4 gap-y-6 py-7 lg:py-12 ${
           facts.length === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"
@@ -923,7 +954,7 @@ export default function DrawingGallery({
             <Panorama drawings={latest} cup={cup} words={words} />
           </div>
           <div className={`${WRAP} mt-3 grid gap-5 lg:mt-10 lg:grid-cols-12 lg:items-center lg:gap-10`}>
-            <div className="text-[15.5px] leading-[1.6] text-o-ink/85 lg:col-span-8 lg:text-[17px]">
+            <div className={`${PROSE} text-[15.5px] leading-[1.6] text-o-ink/85 lg:col-span-8 lg:text-[17px]`}>
               <p>{lead}</p>
               {total > 0 && (
                 <p className="mt-1.5 font-semibold text-o-ink">{sentence(countText(total, t))}.</p>
@@ -964,6 +995,7 @@ export default function DrawingGallery({
 
         {/* ---------------------------------------------------- the gallery */}
         <section
+          data-reveal="section"
           id="galerie"
           aria-labelledby="galerie-titlu"
           className={`${WRAP} scroll-mt-14 pt-14 lg:pt-28`}
@@ -980,8 +1012,8 @@ export default function DrawingGallery({
         </section>
 
         {/* ------------------------------ how the ten are chosen + calendar */}
-        <section className={`${WRAP} grid gap-12 pt-14 lg:grid-cols-12 lg:gap-16 lg:pt-28`}>
-          <div className="lg:col-span-7">
+        <section data-reveal="section" className={`${WRAP} grid gap-12 pt-14 lg:grid-cols-12 lg:gap-16 lg:pt-28`}>
+          <div className={`${PROSE} lg:col-span-7`}>
             <Stagger align="left" size="sm" a={t("h2ChooseA")} b={t("h2ChooseB")} />
             <p className="mt-5 text-[16px] leading-[1.6] font-semibold lg:text-[17px]">{t("siteChooseLead")}</p>
             <div className="mt-5 flex flex-col gap-4 text-[15px] leading-[1.6] text-o-ink/80 lg:text-[16px]">
@@ -1020,17 +1052,17 @@ export default function DrawingGallery({
         </section>
 
         {/* ------------------------------------------------------------- faq */}
-        <section className={`${WRAP} pt-14 pb-16 lg:pt-28 lg:pb-28`}>
+        <section data-reveal="section" className={`${WRAP} pt-14 pb-16 lg:pt-28 lg:pb-28`}>
           <Stagger a={t("h2FaqA")} b={t("h2FaqB")} />
-          <div className="mx-auto mt-8 grid max-w-[1000px] gap-3 lg:mt-12 lg:grid-cols-2 lg:items-start lg:gap-4">
+          <div className="mx-auto mt-8 grid max-w-[1240px] gap-3 lg:mt-12 lg:grid-cols-2 lg:items-start lg:gap-4">
             {faq.map((n) => (
-              <details key={n} className="group relative z-20 rounded-2xl border border-o-ink/15 bg-white px-5 lg:px-6">
+              <details key={n} data-accordion className="group relative z-20 rounded-2xl border border-o-ink/15 bg-white px-5 lg:px-6">
                 <summary
                   className={`flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-4 py-3.5 text-[15.5px] leading-[1.4] font-semibold lg:py-5 lg:text-[16px] [&::-webkit-details-marker]:hidden ${FOCUS}`}
                 >
                   {t(`siteFaq${n}Q`)}
                   <Plus
-                    className="size-[18px] shrink-0 transition-transform duration-200 group-open:rotate-45 motion-reduce:transition-none"
+                    className="size-[18px] shrink-0 transition-transform duration-300 ease-rise group-open:rotate-45 motion-reduce:transition-none"
                     strokeWidth={1.75}
                     aria-hidden
                   />

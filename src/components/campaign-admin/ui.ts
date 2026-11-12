@@ -12,7 +12,14 @@ export const BTN_GREEN = `${BTN} bg-o-green text-white`;
 export const BTN_QUIET = `${BTN} border border-o-ink/20 bg-white text-o-ink active:bg-o-wall`;
 export const CHIP =
   "inline-flex min-h-[44px] shrink-0 items-center rounded-full px-4 text-[14px] font-semibold";
-export const WRAP = "mx-auto w-full max-w-[720px] px-4 sm:px-6";
+export const WRAP =
+  "mx-auto w-full max-w-[720px] px-4 sm:px-6 lg:max-w-[1200px] lg:px-8 2xl:max-w-[1360px]";
+/**
+ * A single column inside that frame. The phone layout is the right one for
+ * a form and for the photo editor however wide the screen is: a wider line
+ * only means more travel between the label and the field.
+ */
+export const COLUMN = "mx-auto w-full max-w-[720px]";
 export const NOTE = "rounded-2xl bg-o-wall px-4 py-3.5 text-[14.5px] leading-[1.5] text-o-ink/85";
 
 export const STATUS_LABEL = {

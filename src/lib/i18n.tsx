@@ -142,6 +142,13 @@ export const ui = {
     en: "Some products contain allergens. Ask our staff for the full ingredient and allergen list.",
   },
   brandName: { ro: "Origins Coffee & Drinks" },
+  /** Rendered with a link on the agency name; see ContestFooter. The name
+   *  itself is never translated, so the split there finds it in all three. */
+  credit: {
+    ro: "Campanie concepută de Epic Digital Hub în colaborare cu Origins Cafe",
+    hu: "A kampányt az Epic Digital Hub készítette az Origins Cafe-val együttműködésben",
+    en: "Campaign created by Epic Digital Hub in collaboration with Origins Cafe",
+  },
   site: { ro: "originscafe.ro" },
   chooseLocationHint: {
     ro: "Meniul, programul și cardul de fidelitate pentru fiecare cafenea Origins din Oradea.",
